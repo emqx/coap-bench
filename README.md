@@ -38,10 +38,18 @@ Data file
 
 Should be of csv type:
 
+An example data file with only the endpoint name:
+
 ```
-beifnigbabef,60
-exnifeitbqid,120
-...
+874625413356234
+874625413356235
+```
+
+Another example data file that contains epname, lifetime, and PSK:
+
+```
+874625413356234,60,beifnigbabef
+874625413356235,120,exnaoeitbqid
 ```
 
 Task distribution

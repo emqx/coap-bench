@@ -20,8 +20,7 @@ init_cli() ->
         [
             {h, "-H, --host", "CoAP/LwM2M server hostname or IP address. [delfault: 127.0.0.1]", [{metavar, "HOST"}]},
             {p, "-P, --port", "CoAP/LwM2M server port number. [delfault: 5683]", [{metavar, "PORT"}]},
-            {i, "-I, --interval", "Interval of connecting to the CoAP/LwM2M server in ms [delfault: 10]", [{metavar, "INTERVAL"}]},
-            {t, "-T, --lifttime", "Lifetime of each LwM2M client in secs [delfault: 60]", [{metavar, "LIFETIME"}]},
+            {i, "-I, --interval", "Interval of connecting to the CoAP/LwM2M server in ms, can be used to control the connectoin establish speed. [delfault: 10]", [{metavar, "INTERVAL"}]},
             {c, "-C, --client-info-file", "File that contains client info of the LwM2M clients [delfault: do not use client info file]", [{metavar, "LIFETIME"}]}
         ],
         [{version,
