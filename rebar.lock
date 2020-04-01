@@ -1,0 +1,4 @@
+[{<<"cli">>,
+  {git,"https://github.com/terry-xiaoyu/erlang-cli.git",
+       {ref,"2d6d5093286708ff2332846700fa3335abefcb27"}},
+  0}].
