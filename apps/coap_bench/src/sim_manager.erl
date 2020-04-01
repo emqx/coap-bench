@@ -53,22 +53,23 @@ group_name(GrpName) ->
 
 tasks_with_grouped_dataset(Tasks, DataSet) ->
     {TotalWeight, TotalNum} = total_weight(Tasks),
-    lists:foldl(fun
+    {NewTasks, _, _} = lists:foldl(fun
         (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow}, {TasksAcc, RemDataSet0, RemNum0})
                 when RemDataSet0 =:= []; RemNum0 =:= 1 ->
             {[#{group_name => GrpName,
                 work_flow => WorkFlow,
                 dataset => RemDataSet0} | TasksAcc], [], 0};
-        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow, weight := Weight}, {TasksAcc, RemDataSet0, RemNum0}) ->
+        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow, <<"weight">> := Weight}, {TasksAcc, RemDataSet0, RemNum0}) ->
             {GroupDataSet, RemDataSet} = lists_split(number_by_weight(Weight, TotalWeight, TotalNum), RemDataSet0),
             {[#{group_name => GrpName,
                 work_flow => WorkFlow,
                 dataset => GroupDataSet} | TasksAcc],
              RemDataSet, RemNum0-1}
-        end, {[], DataSet, TotalNum}, Tasks).
+        end, {[], DataSet, TotalNum}, Tasks),
+    NewTasks.
 
 total_weight(Tasks) ->
-    lists:foldl(fun(#{weight := Weight}, {WeightAcc, Num}) when is_integer(Weight) ->
+    lists:foldl(fun(#{<<"weight">> := Weight}, {WeightAcc, Num}) when is_integer(Weight) ->
             {WeightAcc + Weight, Num + 1}
         end, {0, 0}, Tasks).
 
@@ -89,13 +90,14 @@ parse_workflow(WorkFlow) when is_list(WorkFlow) ->
     lists:map(fun do_parse_workflow/1, WorkFlow).
 
 do_parse_workflow(#{<<"cmd">> := <<"register">>} = Flow) ->
-    case maps:get(<<"lifetime">>, Flow, 60) of
-        Lifetime when is_integer(Lifetime) ->
-            {register, #{lifetime => Lifetime}};
-        Lifetime ->
-            error(invalid, Lifetime)
-    end;
+    {register, #{lifetime => maps:get(<<"lifetime">>, Flow, 60),
+                 ep => maps:get(<<"ep">>, Flow, <<"$uuid">>)
+                }};
 do_parse_workflow(#{<<"cmd">> := <<"deregister">>}) ->
     {deregister, #{}};
+do_parse_workflow(#{<<"cmd">> := <<"notify">>, <<"body">> := Body}) when is_binary(Body) ->
+    {notify, #{body => Body}};
+do_parse_workflow(#{<<"cmd">> := <<"notify">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}}) ->
+    {notify, #{body => auto_gen_binary, size => Size}};
 do_parse_workflow(#{<<"cmd">> := <<"sleep">>, <<"interval">> := Interval}) when is_integer(Interval) ->
     {sleep, #{interval => Interval}}.

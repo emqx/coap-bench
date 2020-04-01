@@ -6,7 +6,9 @@
   {applications,
    [kernel,
     stdlib,
-    cli
+    cli,
+    lwm2m_coap,
+    uuid
    ]},
   {env,[]},
   {modules, []},

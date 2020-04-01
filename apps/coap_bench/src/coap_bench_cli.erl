@@ -21,7 +21,8 @@ init_cli() ->
             {h, "-H, --host", "CoAP/LwM2M server hostname or IP address. [delfault: 127.0.0.1]", [{metavar, "HOST"}]},
             {p, "-P, --port", "CoAP/LwM2M server port number. [delfault: 5683]", [{metavar, "PORT"}]},
             {i, "-I, --interval", "Interval of connecting to the CoAP/LwM2M server in ms, can be used to control the connectoin establish speed. [delfault: 10]", [{metavar, "INTERVAL"}]},
-            {c, "-C, --client-info-file", "File that contains client info of the LwM2M clients [delfault: do not use client info file]", [{metavar, "LIFETIME"}]}
+            {c, "-C, --client-info-file", "File that contains client info of the LwM2M clients [delfault: do not use client info file]", [{metavar, "LIFETIME"}]},
+            {b, "-B, --bind", "Local IP address to bind on. Separated by commas if there're many IP addresses to be bind. [delfault: 127.0.0.1]", [{metavar, "LOCAL_IP_ADDRs"}]}
         ],
         [{version,
             "0.1.0\n"
@@ -45,11 +46,11 @@ init_cli() ->
 
 command_parser(ParserType) ->
     case ets:lookup(?TAB, ParserType) of
-        [{parser, Parser}] -> Parser;
+        [{_, Parser}] -> Parser;
         [] -> error(cli_not_inited)
     end.
 
-command([Type, Args]) ->
+command([Type | Args]) ->
     CmdType = list_to_atom(Type),
     case cli:parse_args(Args, command_parser(CmdType)) of
         {{ok, print_help}, P} ->
@@ -77,7 +78,9 @@ handle_args(run, {Opts, Args}) ->
 parse_conf(Opts) ->
     {ok, Host} = inet:parse_address(proplists:get_value(h, Opts, "127.0.0.1")),
     Port = list_to_integer(proplists:get_value(p, Opts, "5683")),
-    #{host => Host, port => Port}.
+    Binds = [begin {ok, IP} = inet:parse_address(IPAddr), IP end
+            || IPAddr <- string:tokens(proplists:get_value(b, Opts, "127.0.0.1"), ", ")],
+    #{host => Host, port => Port, binds => Binds}.
 
 read_tasks() ->
     [#{ <<"group_name">> => <<"register_only">>,
@@ -118,4 +121,9 @@ read_tasks() ->
             }
         ]
      }
+    ].
+
+read_dataset() ->
+    ["874625413356234,60,beifnigbabef",
+     "874625413356235,120,exnaoeitbqid"
     ].
