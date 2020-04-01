@@ -551,8 +551,10 @@ case "$1" in
 
     run)
         shift
-        $0 rpc coap_bench_cli run_command "$@";;
-
+        $0 rpc coap_bench_cli command "run $@";;
+    status)
+        shift
+        $0 rpc coap_bench_cli command "status $@";;
     stop)
         relx_run_hooks "$PRE_STOP_HOOKS"
         # Wait for the node to completely stop...
@@ -769,15 +771,6 @@ case "$1" in
 
         shift
         relx_nodetool "eval" $@
-        ;;
-    status)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
-
-        [ ! -z "${STATUS_HOOK}" ] && [ "$SCRIPT_DIR/$STATUS_HOOK" ] && . "$SCRIPT_DIR/$STATUS_HOOK" $@
         ;;
     help)
         if [ -z "$2" ]; then
