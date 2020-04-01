@@ -52,15 +52,15 @@ Another example data file that contains epname, lifetime, and PSK:
 874625413356235,120,exnaoeitbqid
 ```
 
-Task distribution
------------------
+Simulators distribution
+-----------------------
 
 Auto distribute by NIC numbers of each node:
 
 ```
 {
     "distribute": "auto",
-    "nodes": [
+    "topology": [
         "coap_bench1@192.168.1.21",
         "coap_bench2@192.168.1.22"
     ]
@@ -72,7 +72,7 @@ Or set the weight of each node manually:
 ```
 {
     "distribute": "weight",
-    "tasks": {
+    "topology": {
         "coap_bench1@192.168.1.21": 10, %% we suggest set weight == (num of NICs of current node)
         "coap_bench2@192.168.1.22": 10
     }
@@ -84,7 +84,7 @@ It would be nice if we could set the exact sim numbers on each node:
 ```
 {
     "distribute": "count",
-    "tasks": {
+    "topology": {
         "coap_bench1@192.168.1.21": 30000,
         "coap_bench2@192.168.1.22": 50000
     }
@@ -106,10 +106,11 @@ Or by range?
 Workflow
 --------
 
+An example workflow for LwM2M:
+
 [
     {
         "group_name":"register_only",
-        "type": "lwm2m",
         "weight": 1,
         "work_flow":[
             {

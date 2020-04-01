@@ -8,7 +8,7 @@
 -behaviour(supervisor).
 
 -export([ start_link/1
-        , start_sim/2
+        , start_sims/4
         , status/2
         ]).
 
@@ -26,12 +26,14 @@ init([]) ->
           start => {sim_worker, start_link, []},
           restart => transient,
           shutdown => brutal_kill,
-          type => supervisor}
+          type => worker}
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
-start_sim(GrpName, WorkFlows) ->
-    supervisor:start_child(GrpName, [WorkFlows]).
+start_sims(GrpName, WorkFlow, DataSet, Conf) ->
+    [{ok, _} = supervisor:start_child(GrpName, [WorkFlow, Data, Conf])
+     || Data <- DataSet],
+    ok.
 
 status(GrpName, count) ->
     supervisor:count_children(GrpName).

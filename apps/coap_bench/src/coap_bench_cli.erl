@@ -24,7 +24,7 @@ init_cli() ->
             {c, "-C, --client-info-file", "File that contains client info of the LwM2M clients [delfault: do not use client info file]", [{metavar, "LIFETIME"}]}
         ],
         [{version,
-            "1.0\n"
+            "0.1.0\n"
             "Copyright (C) 2020 EMQ Technologies Co., Ltd. All rights reserved\n"
             "Written by Shawn <http://github/terry-xiaoyu/>\n"
         }]
@@ -68,4 +68,54 @@ handle_args(status, {Opts, Args}) ->
 
 handle_args(run, {Opts, Args}) ->
     io:format("Options: ~p~n", [Opts]),
-    io:format("Args:    ~p~n", [Args]).
+    io:format("Args:    ~p~n", [Args]),
+    Conf = parse_conf(Opts),
+    Tasks = read_tasks(),
+    DataSet = read_dataset(),
+    sim_manager:start_sim_groups(Tasks, DataSet, Conf).
+
+parse_conf(Opts) ->
+    {ok, Host} = inet:parse_address(proplists:get_value(h, Opts, "127.0.0.1")),
+    Port = list_to_integer(proplists:get_value(p, Opts, "5683")),
+    #{host => Host, port => Port}.
+
+read_tasks() ->
+    [#{ <<"group_name">> => <<"register_only">>,
+        <<"weight">> => 1,
+        <<"work_flow">> => [
+            #{
+                <<"cmd">> => <<"register">>,
+                <<"lifetime">> => 60
+            },
+            #{
+                <<"cmd">> => <<"sleep">>,
+                <<"interval">> => 30
+            },
+            #{
+                <<"cmd">> => <<"deregister">>
+            }
+        ]
+     },
+     #{ <<"group_name">> => <<"notify">>,
+        <<"weight">> => 1,
+        <<"work_flow">> => [
+            #{
+                <<"cmd">> => <<"register">>,
+                <<"lifetime">> => 60
+            },
+            #{
+                <<"cmd">> => <<"sleep">>,
+                <<"interval">> => 30
+            },
+            #{
+                <<"cmd">> => <<"notify">>,
+                <<"body">> =>
+                    #{<<"type">> => <<"auto_gen_binary">>,
+                      <<"size">> => 12}
+            },
+            #{
+                <<"cmd">> => <<"deregister">>
+            }
+        ]
+     }
+    ].
