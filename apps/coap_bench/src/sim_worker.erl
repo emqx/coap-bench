@@ -213,7 +213,7 @@ continue_working(StateData) ->
     {next_state, working, StateData, [{next_event, internal, continue_workflow}]}.
 
 trans_workflow(WorkFlow, Data0) when is_list(WorkFlow) ->
-    Data = [bin(Tk) || Tk <- string:split(Data0, ",", all)],
+    Data = [bin(Tk) || Tk <- string:split(string:tokens(Data0, "\n"), ",", all)],
     [do_trans_workflow(Flow, Data) || Flow <- WorkFlow].
 
 do_trans_workflow({FlowName, Opts}, Data) when is_map(Opts) ->

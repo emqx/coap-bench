@@ -16,12 +16,12 @@ init_cli() ->
         "\n"
         "This tool runs as a local services and send msgs for benchmarking your\n"
         "CoAP or LwM2M server. You could start a cluster of coap_bench to genertate\n"
-        "massive amount of simlation concurrent clients!",
+        "massive amount of simlation concurrent clients!\n"
+        "\n",
         [
             {h, "-H, --host", "CoAP/LwM2M server hostname or IP address. [delfault: 127.0.0.1]", [{metavar, "HOST"}]},
             {p, "-P, --port", "CoAP/LwM2M server port number. [delfault: 5683]", [{metavar, "PORT"}]},
-            {i, "-I, --interval", "Interval of connecting to the CoAP/LwM2M server in ms, can be used to control the connectoin establish speed. [delfault: 10]", [{metavar, "INTERVAL"}]},
-            {c, "-C, --client-info-file", "File that contains client info of the LwM2M clients [delfault: do not use client info file]", [{metavar, "LIFETIME"}]},
+            {i, "-I, --connect-interval", "Interval of connecting to the CoAP/LwM2M server in ms, can be used to control the connectoin establish speed. [delfault: 10]", [{metavar, "INTERVAL"}]},
             {b, "-B, --bind", "Local IP address to bind on. Separated by commas if there're many IP addresses to be bind. [delfault: 127.0.0.1]", [{metavar, "LOCAL_IP_ADDRs"}]}
         ],
         [{version,
@@ -35,13 +35,23 @@ init_cli() ->
         "coap_bench status",
         "",
         "Show status of the coap_bench\n",
-        [{s, "-S, --sims", "Show status of the simulators", [flag]}
+        [{s, "-S, --sims", "Show status of the simulators, e.g. how many sims in each group", [flag]},
+         {m, "-M, --metrics", "Show metrics, e.g. how many registers have been sent and the success ratio", [flag]}
         ],
         []
     ),
 
+    LoadParser = cli:parser(
+        "coap_bench load",
+        "<client-info-file> <workflow-file>",
+        "Load the file into memory."
+        "The <client-info-file> should be a csv file that contains connection params of each client.",
+        [], []
+    ),
+
     ets:insert(?TAB, {run, RunParser}),
-    ets:insert(?TAB, {run, StatusParser}),
+    ets:insert(?TAB, {load, LoadParser}),
+    ets:insert(?TAB, {status, StatusParser}),
     ok.
 
 command_parser(ParserType) ->
@@ -63,76 +73,52 @@ command([Type | Args]) ->
             cli:print_error(Err, P)
     end.
 
-handle_args(status, {Opts, Args}) ->
-    io:format("Options: ~p~n", [Opts]),
-    io:format("Args:    ~p~n", [Args]);
+handle_args(status, {Opts, _Args}) ->
+    proplists:get_value(s, Opts, true) andalso print_status(),
+    proplists:get_value(m, Opts, true) andalso print_metrics();
 
-handle_args(run, {Opts, _Args}) ->
-    Conf = parse_conf(Opts),
-    Tasks = read_tasks(),
-    DataSet = read_dataset(),
-    io:format("Start test with Conf: ~p~nTasks: ~p~nDataSet: ~p~n", [Conf, Tasks, DataSet]),
-    sim_manager:start_sim_groups(Tasks, DataSet, Conf).
+handle_args(run, {Opts, []}) ->
+    case coap_bench_client_info:is_ready() of
+        true ->
+            Conf = parse_conf(Opts),
+            io:format("Start test with Conf: ~p~n", [Conf]),
+            sim_manager:start_sim_groups(Conf);
+        false ->
+            io:format("Not initialized. Please do 'coap_bench load <client-info-file> <workflow-file>' first!~n")
+    end;
+handle_args(run, {_, _}) ->
+    io:format("coap_bench run do not accept arguments!~n");
+
+handle_args(load, {_, [Filename, WorkflowFile]}) ->
+    io:format("loading client info file: ~p into memory~n", [Filename]),
+    io:format("loading workflow file: ~p into memory~n", [WorkflowFile]),
+    coap_bench_client_info:load_client_info(file, Filename),
+    coap_bench_client_info:load_workflow(file, WorkflowFile);
+handle_args(load, {_, _}) ->
+    io:format("coap_bench load only accept 2 arguments!~n").
+
+print_status() ->
+    case sim_manager:status(count) of
+        0 ->
+            io:format("No Running Task Groups!~n");
+        GrpCount ->
+            io:format("~60..=s~n", [""]),
+            io:format("Total ~w Running Task Groups~n", [GrpCount]),
+            io:format("~60..=s~n", [""]),
+            io:format("~-48s~s~n", ["TaskGroup", "RunningSims"]),
+            io:format("~60..-s~n", [""]),
+            [io:format("~-48s: ~p~n", [GrpName, SimCount])
+            || {GrpName, SimCount} <- sim_manager:status(list)]
+    end.
+
+print_metrics() ->
+    ok.
 
 parse_conf(Opts) ->
     {ok, Host} = inet:parse_address(proplists:get_value(h, Opts, "127.0.0.1")),
     Port = list_to_integer(proplists:get_value(p, Opts, "5683")),
     Binds = [begin {ok, IP} = inet:parse_address(IPAddr), IP end
             || IPAddr <- string:tokens(proplists:get_value(b, Opts, "127.0.0.1"), ", ")],
-    #{host => Host, port => Port, binds => Binds}.
-
-read_tasks() ->
-    [#{ <<"group_name">> => <<"register_only">>,
-        <<"weight">> => 1,
-        <<"work_flow">> => [
-            #{
-                <<"task">> => <<"register">>,
-                <<"lifetime">> => 60
-            },
-            #{
-                <<"task">> => <<"sleep">>,
-                <<"interval">> => 30
-            },
-            #{
-                <<"task">> => <<"deregister">>
-            }
-        ]
-     },
-     #{ <<"group_name">> => <<"notify">>,
-        <<"weight">> => 1,
-        <<"work_flow">> => [
-            #{
-                <<"task">> => <<"register">>,
-                <<"lifetime">> => 60,
-                <<"ep">> => <<"$1">>,
-                <<"object_links">> =>
-                    <<"</>;rt=\"oma.lwm2m\",</3/0>,</19/0>">>
-            },
-            #{
-                <<"task">> => <<"wait_observe">>,
-                <<"path">> => <<"3/0">>,
-                <<"timeout">> => 5
-            },
-            #{
-                <<"task">> => <<"wait_observe">>,
-                <<"path">> => <<"19/0/0">>,
-                <<"timeout">> => 5
-            },
-            #{
-                <<"task">> => <<"notify">>,
-                <<"path">> => <<"19/0/0">>,
-                <<"body">> =>
-                    #{<<"type">> => <<"auto_gen_binary">>,
-                      <<"size">> => 12}
-            },
-            #{
-                <<"task">> => <<"deregister">>
-            }
-        ]
-     }
-    ].
-
-read_dataset() ->
-    ["874625413356234,60,beifnigbabef",
-     "874625413356235,120,exnaoeitbqid"
-    ].
+    ConnInterval = list_to_integer(proplists:get_value(i, Opts, "10")),
+    #{host => Host, port => Port,
+      binds => Binds, conn_interval => ConnInterval}.

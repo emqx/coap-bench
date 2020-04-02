@@ -555,6 +555,9 @@ case "$1" in
     status)
         shift
         $0 rpc coap_bench_cli command "status $@";;
+    load)
+        shift
+        $0 rpc coap_bench_cli command "load $@";;
     stop)
         relx_run_hooks "$PRE_STOP_HOOKS"
         # Wait for the node to completely stop...

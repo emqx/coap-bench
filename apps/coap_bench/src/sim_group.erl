@@ -30,12 +30,15 @@ init([]) ->
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
-start_sims(GrpName, WorkFlow, DataSet, Conf) ->
-    [{ok, _} = supervisor:start_child(GrpName, [WorkFlow, Data, Conf])
-     || Data <- DataSet],
+start_sims(GrpName, WorkFlow, ClientInfos, Conf = #{conn_interval := ConnInterval}) ->
+    [begin
+        {ok, _} = supervisor:start_child(GrpName, [WorkFlow, Vars, Conf]),
+        timer:sleep(ConnInterval)
+     end|| Vars <- ClientInfos],
     ok.
 
 status(GrpName, count) ->
-    supervisor:count_children(GrpName).
+    Status = supervisor:count_children(GrpName),
+    proplists:get_value(active, Status, 0).
 
 %% internal functions

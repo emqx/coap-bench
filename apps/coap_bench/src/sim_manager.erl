@@ -8,7 +8,7 @@
 -behaviour(supervisor).
 
 -export([ start_link/0
-        , start_sim_groups/3
+        , start_sim_groups/1
         , status/1
         ]).
 
@@ -34,46 +34,52 @@ init([]) ->
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
-start_sim_groups(Tasks, DataSet, Conf) ->
-    [begin
+start_sim_groups(Conf) ->
+    Tasks = coap_bench_client_info:get_workflow(),
+    ClientInfos = coap_bench_client_info:get_client_info(),
+    [spawn(fun() ->
         {ok, _} = supervisor:start_child(?MODULE, [group_name(GrpName)]),
-        ok = sim_group:start_sims(group_name(GrpName), parse_workflow(WorkFlow), GroupDataSet, Conf)
-     end
-    || #{group_name := GrpName,
-         work_flow := WorkFlow,
-         dataset := GroupDataSet} <- tasks_with_grouped_dataset(Tasks, DataSet)].
+        ok = sim_group:start_sims(group_name(GrpName), parse_workflow(WorkFlow), GroupClientInfos, Conf)
+     end) || #{group_name := GrpName,
+               work_flow := WorkFlow,
+               client_infos := GroupClientInfos} <- tasks_with_grouped_client_infos(Tasks, ClientInfos)].
 
 status(count) ->
-    supervisor:count_children(?MANAGER);
+    Status = supervisor:count_children(?MANAGER),
+    proplists:get_value(active, Status, 0);
 status(list) ->
-    supervisor:which_children(?MANAGER).
+    [begin
+        {registered_name, Name} = erlang:process_info(GrpPid, registered_name),
+        {Name, sim_group:status(GrpPid, count)}
+     end || {_,GrpPid,_,_} <- supervisor:which_children(?MANAGER)].
 
 %% internal functions
 
 group_name(GrpName) ->
     list_to_atom("sim_group_" ++ binary_to_list(GrpName)).
 
-tasks_with_grouped_dataset(Tasks, DataSet) ->
-    {TotalWeight, TotalNum} = total_weight(Tasks),
+tasks_with_grouped_client_infos(Tasks, ClientInfos) ->
+    TotalWeight = total_weight(Tasks),
+    TotalNum = length(ClientInfos),
     {NewTasks, _, _} = lists:foldl(fun
-        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow}, {TasksAcc, RemDataSet0, RemNum0})
-                when RemDataSet0 =:= []; RemNum0 =:= 1 ->
+        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow}, {TasksAcc, RemClientInfos0, RemNum0})
+                when RemClientInfos0 =:= []; RemNum0 =:= 1 ->
             {[#{group_name => GrpName,
                 work_flow => WorkFlow,
-                dataset => RemDataSet0} | TasksAcc], [], 0};
-        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow, <<"weight">> := Weight}, {TasksAcc, RemDataSet0, RemNum0}) ->
-            {GroupDataSet, RemDataSet} = lists_split(number_by_weight(Weight, TotalWeight, TotalNum), RemDataSet0),
+                client_infos => RemClientInfos0} | TasksAcc], [], 0};
+        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow, <<"weight">> := Weight}, {TasksAcc, RemClientInfos0, RemNum0}) ->
+            {GroupClientInfos, RemClientInfos} = lists_split(number_by_weight(Weight, TotalWeight, TotalNum), RemClientInfos0),
             {[#{group_name => GrpName,
                 work_flow => WorkFlow,
-                dataset => GroupDataSet} | TasksAcc],
-             RemDataSet, RemNum0-1}
-        end, {[], DataSet, TotalNum}, Tasks),
+                client_infos => GroupClientInfos} | TasksAcc],
+             RemClientInfos, RemNum0-1}
+        end, {[], ClientInfos, TotalNum}, Tasks),
     NewTasks.
 
 total_weight(Tasks) ->
-    lists:foldl(fun(#{<<"weight">> := Weight}, {WeightAcc, Num}) when is_integer(Weight) ->
-            {WeightAcc + Weight, Num + 1}
-        end, {0, 0}, Tasks).
+    lists:foldl(fun(#{<<"weight">> := Weight}, WeightAcc) when is_integer(Weight) ->
+            WeightAcc + Weight
+        end, 0, Tasks).
 
 number_by_weight(Weight, TotalWeight, TotalNum) ->
     ceil((Weight / TotalWeight) * TotalNum).
@@ -82,7 +88,7 @@ lists_split(Len, List) ->
     try lists:split(Len, List)
     catch
         error:badarg ->
-            case length(Len) > List of
+            case Len > length(List) of
                 true -> {List, []};
                 false -> error({invalid_split, Len, List})
             end

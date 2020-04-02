@@ -13,7 +13,7 @@
 -include_lib("lwm2m_coap/include/coap.hrl").
 
 make_register(EndpointName, Lifetime, MsgId, ObjectLinks) ->
-    Lt = integer_to_binary(Lifetime),
+    Lt = bin(Lifetime),
     Query = [<<"b=U">>, <<"ep=", EndpointName/binary>>, <<"lt=", Lt/binary>>, <<"lwm2m=1.0">>],
     coap_message(con, post, ObjectLinks, MsgId, crypto:strong_rand_bytes(4),
         [{uri_path, [<<"rd">>]}, {uri_query,Query}, {content_format, <<"application/link-format">>}]).
@@ -56,3 +56,8 @@ uri_path(#coap_message{options = Options}) ->
 
 token(#coap_message{token = Token}) ->
     Token.
+
+bin(Int) when is_integer(Int) ->
+    integer_to_binary(Int);
+bin(Bin) when is_binary(Bin) ->
+    Bin.
