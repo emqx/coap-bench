@@ -67,12 +67,11 @@ handle_args(status, {Opts, Args}) ->
     io:format("Options: ~p~n", [Opts]),
     io:format("Args:    ~p~n", [Args]);
 
-handle_args(run, {Opts, Args}) ->
-    io:format("Options: ~p~n", [Opts]),
-    io:format("Args:    ~p~n", [Args]),
+handle_args(run, {Opts, _Args}) ->
     Conf = parse_conf(Opts),
     Tasks = read_tasks(),
     DataSet = read_dataset(),
+    io:format("Start test with Conf: ~p~nTasks: ~p~nDataSet: ~p~n", [Conf, Tasks, DataSet]),
     sim_manager:start_sim_groups(Tasks, DataSet, Conf).
 
 parse_conf(Opts) ->
@@ -87,15 +86,15 @@ read_tasks() ->
         <<"weight">> => 1,
         <<"work_flow">> => [
             #{
-                <<"cmd">> => <<"register">>,
+                <<"task">> => <<"register">>,
                 <<"lifetime">> => 60
             },
             #{
-                <<"cmd">> => <<"sleep">>,
+                <<"task">> => <<"sleep">>,
                 <<"interval">> => 30
             },
             #{
-                <<"cmd">> => <<"deregister">>
+                <<"task">> => <<"deregister">>
             }
         ]
      },
@@ -103,21 +102,31 @@ read_tasks() ->
         <<"weight">> => 1,
         <<"work_flow">> => [
             #{
-                <<"cmd">> => <<"register">>,
-                <<"lifetime">> => 60
+                <<"task">> => <<"register">>,
+                <<"lifetime">> => 60,
+                <<"ep">> => <<"$1">>,
+                <<"object_links">> =>
+                    <<"</>;rt=\"oma.lwm2m\",</3/0>,</19/0>">>
             },
             #{
-                <<"cmd">> => <<"sleep">>,
-                <<"interval">> => 30
+                <<"task">> => <<"wait_observe">>,
+                <<"path">> => <<"3/0">>,
+                <<"timeout">> => 5
             },
             #{
-                <<"cmd">> => <<"notify">>,
+                <<"task">> => <<"wait_observe">>,
+                <<"path">> => <<"19/0/0">>,
+                <<"timeout">> => 5
+            },
+            #{
+                <<"task">> => <<"notify">>,
+                <<"path">> => <<"19/0/0">>,
                 <<"body">> =>
                     #{<<"type">> => <<"auto_gen_binary">>,
                       <<"size">> => 12}
             },
             #{
-                <<"cmd">> => <<"deregister">>
+                <<"task">> => <<"deregister">>
             }
         ]
      }

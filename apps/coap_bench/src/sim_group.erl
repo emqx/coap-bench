@@ -24,7 +24,7 @@ init([]) ->
     ChildSpecs = [
         #{id => sim_worker,
           start => {sim_worker, start_link, []},
-          restart => transient,
+          restart => temporary,
           shutdown => brutal_kill,
           type => worker}
     ],

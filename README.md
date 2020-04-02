@@ -96,7 +96,7 @@ Or by range?
 ```
 {
     "distribute": "range",
-    "tasks": {
+    "topology": {
         "coap_bench1@192.168.1.21": 0-29999,
         "coap_bench2@192.168.1.22": 30000-49999
     }
@@ -114,16 +114,16 @@ An example workflow for LwM2M:
         "weight": 1,
         "work_flow":[
             {
-                "cmd":"register",
+                "task":"register",
                 "ep": "$1",
                 "lifetime": "$2"
             },
             {
-                "cmd":"sleep",
+                "task":"sleep",
                 "interval":120
             },
             {
-                "cmd":"deregister"
+                "task":"deregister"
             }
         ]
     },
@@ -132,21 +132,49 @@ An example workflow for LwM2M:
         "weight": 1
         "work_flow":[
             {
-                "cmd":"register",
+                "task":"register",
                 "lifetime":60
             },
             {
-                "cmd":"sleep",
-                "interval":120
+                "task":"wait_observe",
+                "path":"19/0/0",
+                "timeout":120
             },
             {
-                "cmd":"notify",
+                "task":"notify",
+                "path":"19/0/0",
                 "body": {"type": "auto_gen_binary", "size": 12}
             },
             {
-                "cmd":"deregister"
+                "task":"deregister"
             }
         ]
+    }
+]
+
+TODO: Support loop
+
+"work_flow":[
+    {
+        "task":"register",
+        "lifetime":60
+    },
+    {
+        "task": "repeat",
+        "repeat_num": 3,
+        "flow": [
+            {
+                "task":"sleep",
+                "interval":120
+            },
+            {
+                "task":"notify",
+                "body": {"type": "auto_gen_binary", "size": 12}
+            }
+        ]
+    },
+    {
+        "task":"deregister"
     }
 ]
 

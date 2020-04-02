@@ -16,13 +16,15 @@
 
 -define(MANAGER, ?MODULE).
 
+-define(DEFAULT_OBJ_LINKS, <<"</>;rt=\"oma.lwm2m\",</1/0>,</3/0>">>).
+
 start_link() ->
     supervisor:start_link({local, ?MANAGER}, ?MODULE, []).
 
 init([]) ->
     SupFlags = #{strategy => simple_one_for_one,
-                 intensity => 0,
-                 period => 1},
+                 intensity => 20,
+                 period => 3},
     ChildSpecs = [
         #{id => sim_group,
           start => {sim_group, start_link, []},
@@ -89,15 +91,25 @@ lists_split(Len, List) ->
 parse_workflow(WorkFlow) when is_list(WorkFlow) ->
     lists:map(fun do_parse_workflow/1, WorkFlow).
 
-do_parse_workflow(#{<<"cmd">> := <<"register">>} = Flow) ->
+do_parse_workflow(#{<<"task">> := <<"register">>} = Flow) ->
     {register, #{lifetime => maps:get(<<"lifetime">>, Flow, 60),
-                 ep => maps:get(<<"ep">>, Flow, <<"$uuid">>)
+                 ep => maps:get(<<"ep">>, Flow, <<"$uuid">>),
+                 object_links => maps:get(<<"object_links">>, Flow, ?DEFAULT_OBJ_LINKS)
                 }};
-do_parse_workflow(#{<<"cmd">> := <<"deregister">>}) ->
+
+do_parse_workflow(#{<<"task">> := <<"deregister">>}) ->
     {deregister, #{}};
-do_parse_workflow(#{<<"cmd">> := <<"notify">>, <<"body">> := Body}) when is_binary(Body) ->
-    {notify, #{body => Body}};
-do_parse_workflow(#{<<"cmd">> := <<"notify">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}}) ->
-    {notify, #{body => auto_gen_binary, size => Size}};
-do_parse_workflow(#{<<"cmd">> := <<"sleep">>, <<"interval">> := Interval}) when is_integer(Interval) ->
+
+do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"path">> := Path, <<"timeout">> := Sec}) ->
+    {wait_observe, #{path => path_list(Path), timeout => Sec}};
+
+do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := Body, <<"path">> := Path}) when is_binary(Body) ->
+    {notify, #{body => Body, path => path_list(Path)}};
+do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path}) ->
+    {notify, #{body => auto_gen_binary, size => Size, path => path_list(Path)}};
+
+do_parse_workflow(#{<<"task">> := <<"sleep">>, <<"interval">> := Interval}) when is_integer(Interval) ->
     {sleep, #{interval => Interval}}.
+
+path_list(Path) ->
+    string:lexemes(Path, "/ ").

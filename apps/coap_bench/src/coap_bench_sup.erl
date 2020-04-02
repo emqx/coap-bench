@@ -19,8 +19,8 @@ start_link() ->
 
 init([]) ->
     SupFlags = #{strategy => one_for_all,
-                 intensity => 0,
-                 period => 1},
+                 intensity => 5,
+                 period => 2},
     ChildSpecs = [
         #{id => sim_manager,
           start => {sim_manager, start_link, []},
