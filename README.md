@@ -13,6 +13,12 @@ Usage
 
     $ COAP_NODE_NAME='coap1@127.0.0.1' ./bin/coap_bench console
 
+    $ ./bin/coap_bench load data/client_info.csv data/workflow.json
+
+    $ ./bin/coap_bench run -H 127.0.0.1 -P 5683 -B "127.0.0.1,127.0.0.1"
+
+    $ ./bin/coap_bench status
+
 Design
 ------
 
