@@ -118,7 +118,7 @@ process_task(#data{workflow = [{deregister, #{}} | WorkFlow],
         end,
     send_request(Sock, Host, Port, lwm2m_cmd:make_deregister(Location, MsgId), Data, WorkFlow, MsgId, Validitor);
 
-process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec}} | WorkFlow],
+process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec} = BodyOpts} | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
@@ -126,7 +126,8 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec}} |
         fun(RcvdMsg, StateData0 = #data{observed = Observed}) ->
             case {lwm2m_cmd:uri_path(RcvdMsg), lwm2m_cmd:token(RcvdMsg)} of
                 {Path0, Token0} when Path0 =:= Path ->
-                    Ack = lwm2m_cmd:make_ack(RcvdMsg, {ok, content}, <<>>, []),
+                    Ack = lwm2m_cmd:make_ack(RcvdMsg, {ok, content}, make_body(BodyOpts),
+                            [{content_format, <<"application/vnd.oma.lwm2m+tlv">>}]),
                     gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(Ack)),
                     {ok, StateData0#data{observed = Observed#{Path0 => Token0}}};
                 {_Path0, _Token0} ->
@@ -136,27 +137,14 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec}} |
     {next_state, wait_coap_msg, Data#data{workflow = WorkFlow, verify_msg = Validitor, nextmid = next_mid(MsgId)},
         [{state_timeout, timer:seconds(Sec), wait_msg_timeout}]};
 
-process_task(#data{workflow = [{notify, #{path := Path, body := auto_gen_binary, size := Size}} | WorkFlow],
+process_task(#data{workflow = [{notify, #{path := Path} = BodyOpts} | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    observed = Observed,
                    conf = #{host := Host, port := Port}} = Data) ->
     case maps:find(Path, Observed) of
         {ok, Token} ->
-            Notify = lwm2m_cmd:make_notify(Token, MsgId, crypto:strong_rand_bytes(Size)),
-            send_response(Sock, Host, Port, Notify, Data, WorkFlow, MsgId);
-        error ->
-            {stop, {shutdown, {not_observed, Path}}}
-    end;
-
-process_task(#data{workflow = [{notify, #{path := Path, body := Body}} | WorkFlow],
-                   sock = Sock,
-                   nextmid = MsgId,
-                   observed = Observed,
-                   conf = #{host := Host, port := Port}} = Data) when is_binary(Body) ->
-    case maps:find(Path, Observed) of
-        {ok, Token} ->
-            Notify = lwm2m_cmd:make_notify(Token, MsgId, Body),
+            Notify = lwm2m_cmd:make_notify(Token, MsgId, make_body(BodyOpts)),
             send_response(Sock, Host, Port, Notify, Data, WorkFlow, MsgId);
         error ->
             {stop, {shutdown, {not_observed, Path}}}
@@ -174,9 +162,11 @@ handle_common_events(StateName, EventType, Event, _Data) ->
     logger:warning("received unexpected event: ~p in state: ~p", [{EventType, Event}, StateName]),
     keep_state_and_data.
 
-terminate(Reason, _State, #data{workflow = []}) ->
+terminate(Reason, _State, #data{workflow = [], sock = Sock}) ->
+    gen_udp:close(Sock),
     logger:debug("[~p] terminate: ~p", [?MODULE, Reason]);
-terminate(Reason, _State, #data{workflow = Tasks}) ->
+terminate(Reason, _State, #data{workflow = Tasks, sock = Sock}) ->
+    gen_udp:close(Sock),
     logger:error("[~p] terminate with pending tasks: ~p, reason: ~p", [?MODULE, Tasks, Reason]).
 
 %%%===================================================================
@@ -218,6 +208,11 @@ trans_workflow(WorkFlow, Data0) when is_list(WorkFlow) ->
 
 do_trans_workflow({FlowName, Opts}, Data) when is_map(Opts) ->
     {FlowName, coap_bench_utils:replace_map_var(Opts, Data)}.
+
+make_body(#{body := auto_gen_binary, size := Size} = _Opts) ->
+    crypto:strong_rand_bytes(Size);
+make_body(#{body := Body}) when is_binary(Body) ->
+    Body.
 
 first_mid() ->
     rand:uniform(?MAX_MESSAGE_ID).

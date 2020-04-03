@@ -9,6 +9,8 @@
 
 -export([ start_link/0
         , start_sim_groups/1
+        , stop_sim_groups/0
+        , stop_sim_groups/1
         , status/1
         ]).
 
@@ -37,12 +39,27 @@ init([]) ->
 start_sim_groups(Conf) ->
     Tasks = coap_bench_client_info:get_workflow(),
     ClientInfos = coap_bench_client_info:get_client_info(),
-    [spawn(fun() ->
-        {ok, _} = supervisor:start_child(?MODULE, [group_name(GrpName)]),
-        ok = sim_group:start_sims(group_name(GrpName), parse_workflow(WorkFlow), GroupClientInfos, Conf)
+    [spawn_link(fun() ->
+        GroupName = group_name(GrpName),
+        try
+            {ok, _} = supervisor:start_child(?MODULE, [GroupName]),
+            sim_group:start_sims(GroupName, parse_workflow(WorkFlow), GroupClientInfos, Conf)
+        of
+            ok -> io:format("TaskGroup: ~p started~n", [GroupName])
+        catch
+            Err:Reason:ST ->
+                io:format("TaskGroup: ~p failed to start: ~0p~n", [GroupName, {Err,Reason,ST}]),
+                error({start_group_failed, GroupName, Err, Reason, ST})
+        end
      end) || #{group_name := GrpName,
                work_flow := WorkFlow,
                client_infos := GroupClientInfos} <- tasks_with_grouped_client_infos(Tasks, ClientInfos)].
+
+stop_sim_groups() ->
+    [supervisor:terminate_child(?MANAGER, GrpPid)
+     || {_,GrpPid,_,_} <- supervisor:which_children(?MANAGER)].
+stop_sim_groups(GrpName) ->
+    supervisor:terminate_child(?MANAGER, erlang:whereis(GrpName)).
 
 status(count) ->
     Status = supervisor:count_children(?MANAGER),
@@ -106,8 +123,10 @@ do_parse_workflow(#{<<"task">> := <<"register">>} = Flow) ->
 do_parse_workflow(#{<<"task">> := <<"deregister">>}) ->
     {deregister, #{}};
 
-do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"path">> := Path, <<"timeout">> := Sec}) ->
-    {wait_observe, #{path => path_list(Path), timeout => Sec}};
+do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := Body, <<"path">> := Path, <<"timeout">> := Sec}) when is_binary(Body) ->
+    {wait_observe, #{path => path_list(Path), body => Body, timeout => Sec}};
+do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path, <<"timeout">> := Sec}) ->
+    {wait_observe, #{path => path_list(Path), body => auto_gen_binary, size => Size, timeout => Sec}};
 
 do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := Body, <<"path">> := Path}) when is_binary(Body) ->
     {notify, #{body => Body, path => path_list(Path)}};

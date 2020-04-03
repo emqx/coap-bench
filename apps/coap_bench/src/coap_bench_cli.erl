@@ -31,9 +31,20 @@ init_cli() ->
         }]
     ),
 
+    ClearParser = cli:parser(
+        "coap_bench clear",
+        "[OPTION]...",
+        "Stop one or more task groups.\n"
+        "\n",
+        [
+            {g, "-G, --group", "Task group name. If not specified, all of the groups will be stopped", [{metavar, "GROUP"}]}
+        ],
+        []
+    ),
+
     StatusParser = cli:parser(
         "coap_bench status",
-        "",
+        "[OPTION]...",
         "Show status of the coap_bench\n",
         [{s, "-S, --sims", "Show status of the simulators, e.g. how many sims in each group", [flag]},
          {m, "-M, --metrics", "Show metrics, e.g. how many registers have been sent and the success ratio", [flag]}
@@ -50,6 +61,7 @@ init_cli() ->
     ),
 
     ets:insert(?TAB, {run, RunParser}),
+    ets:insert(?TAB, {clear, ClearParser}),
     ets:insert(?TAB, {load, LoadParser}),
     ets:insert(?TAB, {status, StatusParser}),
     ok.
@@ -81,13 +93,25 @@ handle_args(run, {Opts, []}) ->
     case coap_bench_client_info:is_ready() of
         true ->
             Conf = parse_conf(Opts),
-            io:format("Start test with Conf: ~p~n", [Conf]),
-            sim_manager:start_sim_groups(Conf);
+            case sim_manager:start_sim_groups(Conf) of
+                ok -> io:format("Start test with Conf: ~p~n", [Conf]);
+            end,
         false ->
             io:format("Not initialized. Please do 'coap_bench load <client-info-file> <workflow-file>' first!~n")
     end;
 handle_args(run, {_, _}) ->
     io:format("coap_bench run do not accept arguments!~n");
+
+handle_args(clear, {Opts, _}) ->
+    case proplists:get_value(g, Opts, all) of
+        all ->
+            io:format("Stop all task groups~n"),
+            sim_manager:stop_sim_groups();
+        GrpName ->
+            Name = list_to_atom(GrpName),
+            io:format("Stop task group: ~p~n", [Name]),
+            sim_manager:stop_sim_groups(Name)
+    end;
 
 handle_args(load, {_, [Filename, WorkflowFile]}) ->
     io:format("loading client info file: ~p into memory~n", [Filename]),

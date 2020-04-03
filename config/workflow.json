@@ -34,14 +34,16 @@
             {
                 "task":"wait_observe",
                 "path":"19/0/0",
+                "body": "abcde",
                 "timeout": 5
             },
             {
                 "task":"notify",
                 "path":"19/0/0",
-                "body":
-                  {"type": "auto_gen_binary",
-                   "size": 12}
+                "body": {
+                    "type": "auto_gen_binary",
+                    "size": 12
+                }
             },
             {
                 "task":"sleep",
