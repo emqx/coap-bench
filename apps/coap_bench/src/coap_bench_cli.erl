@@ -94,8 +94,11 @@ handle_args(run, {Opts, []}) ->
         true ->
             Conf = parse_conf(Opts),
             case sim_manager:start_sim_groups(Conf) of
-                ok -> io:format("Start test with Conf: ~p~n", [Conf]);
-            end,
+                ok -> io:format("Test started successfully with conf: ~p~n", [Conf]);
+                {error, Reason} ->
+                    io:format("Test failed with reason: ~p~nConf: ~p~n", [Reason, Conf]),
+                    sim_manager:stop_sim_groups()
+            end;
         false ->
             io:format("Not initialized. Please do 'coap_bench load <client-info-file> <workflow-file>' first!~n")
     end;
@@ -113,11 +116,13 @@ handle_args(clear, {Opts, _}) ->
             sim_manager:stop_sim_groups(Name)
     end;
 
-handle_args(load, {_, [Filename, WorkflowFile]}) ->
-    io:format("loading client info file: ~p into memory~n", [Filename]),
-    io:format("loading workflow file: ~p into memory~n", [WorkflowFile]),
-    coap_bench_client_info:load_client_info(file, Filename),
-    coap_bench_client_info:load_workflow(file, WorkflowFile);
+handle_args(load, {_, [ClientInfoFile, WorkflowFile]}) ->
+    {ClientCount, GroupsCount} = coap_bench_client_info:load_profiles(ClientInfoFile, WorkflowFile),
+    io:format("Loading profiles into memory:~n"
+              "- ClientInfoFile:\t~p\t~p clients~n"
+              "- WorkflowFile:  \t~p\t~p groups~n",
+              [ClientInfoFile, ClientCount,
+               WorkflowFile, GroupsCount]);
 handle_args(load, {_, _}) ->
     io:format("coap_bench load only accept 2 arguments!~n").
 

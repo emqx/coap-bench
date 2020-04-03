@@ -37,9 +37,8 @@ init([]) ->
     {ok, {SupFlags, ChildSpecs}}.
 
 start_sim_groups(Conf) ->
-    Tasks = coap_bench_client_info:get_workflow(),
-    ClientInfos = coap_bench_client_info:get_client_info(),
-    [spawn_link(fun() ->
+    R =
+     [(fun() ->
         GroupName = group_name(GrpName),
         try
             {ok, _} = supervisor:start_child(?MODULE, [GroupName]),
@@ -49,11 +48,15 @@ start_sim_groups(Conf) ->
         catch
             Err:Reason:ST ->
                 io:format("TaskGroup: ~p failed to start: ~0p~n", [GroupName, {Err,Reason,ST}]),
-                error({start_group_failed, GroupName, Err, Reason, ST})
+                {start_group_failed, {GroupName, {Err, Reason}}}
         end
-     end) || #{group_name := GrpName,
-               work_flow := WorkFlow,
-               client_infos := GroupClientInfos} <- tasks_with_grouped_client_infos(Tasks, ClientInfos)].
+     end)() || #{group_name := GrpName,
+                 work_flow := WorkFlow,
+                 client_infos := GroupClientInfos} <- coap_bench_client_info:get_client_info()],
+    case lists:filter(fun(ok) -> false; (_) -> true end, R) of
+        [] -> ok;
+        Result -> {error, Result}
+    end.
 
 stop_sim_groups() ->
     [supervisor:terminate_child(?MANAGER, GrpPid)
@@ -74,42 +77,6 @@ status(list) ->
 
 group_name(GrpName) ->
     list_to_atom("sim_group_" ++ binary_to_list(GrpName)).
-
-tasks_with_grouped_client_infos(Tasks, ClientInfos) ->
-    TotalWeight = total_weight(Tasks),
-    TotalNum = length(ClientInfos),
-    {NewTasks, _, _} = lists:foldl(fun
-        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow}, {TasksAcc, RemClientInfos0, RemNum0})
-                when RemClientInfos0 =:= []; RemNum0 =:= 1 ->
-            {[#{group_name => GrpName,
-                work_flow => WorkFlow,
-                client_infos => RemClientInfos0} | TasksAcc], [], 0};
-        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow, <<"weight">> := Weight}, {TasksAcc, RemClientInfos0, RemNum0}) ->
-            {GroupClientInfos, RemClientInfos} = lists_split(number_by_weight(Weight, TotalWeight, TotalNum), RemClientInfos0),
-            {[#{group_name => GrpName,
-                work_flow => WorkFlow,
-                client_infos => GroupClientInfos} | TasksAcc],
-             RemClientInfos, RemNum0-1}
-        end, {[], ClientInfos, TotalNum}, Tasks),
-    NewTasks.
-
-total_weight(Tasks) ->
-    lists:foldl(fun(#{<<"weight">> := Weight}, WeightAcc) when is_integer(Weight) ->
-            WeightAcc + Weight
-        end, 0, Tasks).
-
-number_by_weight(Weight, TotalWeight, TotalNum) ->
-    ceil((Weight / TotalWeight) * TotalNum).
-
-lists_split(Len, List) ->
-    try lists:split(Len, List)
-    catch
-        error:badarg ->
-            case Len > length(List) of
-                true -> {List, []};
-                false -> error({invalid_split, Len, List})
-            end
-    end.
 
 parse_workflow(WorkFlow) when is_list(WorkFlow) ->
     lists:map(fun do_parse_workflow/1, WorkFlow).

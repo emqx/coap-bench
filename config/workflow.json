@@ -29,6 +29,7 @@
             {
                 "task":"wait_observe",
                 "path":"/3/0",
+                "body": "abcde",
                 "timeout": 5
             },
             {

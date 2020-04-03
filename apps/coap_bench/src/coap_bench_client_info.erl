@@ -1,7 +1,11 @@
 -module(coap_bench_client_info).
 
--export([init/0, is_ready/0, load_client_info/2, load_workflow/2,
-        get_client_info/0, get_workflow/0, load_all_lines/1]).
+-export([ init/0
+        , is_ready/0
+        , load_profiles/2
+        , get_client_info/0
+        , get_workflow/0
+        ]).
 
 init() ->
     ets:new(?MODULE, [named_table, set, public]),
@@ -10,27 +14,27 @@ init() ->
 is_ready() ->
     ets:info(?MODULE, size) > 0.
 
-load_workflow(file, FileName) ->
-    {ok, Workflow} = file:read_file(FileName),
-    ets:insert(?MODULE, {workflow, jsx:decode(Workflow, [return_maps])}),
-    ok.
+load_profiles(ClientInfoFile, WorkflowFile) ->
+    %% load workflow
+    {ok, Workflow} = file:read_file(WorkflowFile),
+    [_ | _] = JsonWorkflow = jsx:decode(Workflow, [return_maps]),
+    ets:insert(?MODULE, {workflow, JsonWorkflow}),
 
-load_client_info(file, FileName) ->
-    {ok, Device} = file:open(FileName, [read]),
-    try load_all_lines(Device)
-      after file:close(Device)
-    end,
-    ok.
+    %% load client info and distribute the clients by group
+    {ok, Device} = file:open(ClientInfoFile, [read]),
+    {ClientInfos, ClientNum} =
+        try load_line_by_line(Device, {[], 0})
+        after file:close(Device)
+        end,
+    GroupdClientInfo = tasks_with_grouped_client_infos(get_workflow(), ClientInfos),
+    ets:insert(?MODULE, {client_infos, GroupdClientInfo}),
+    {ClientNum, length(JsonWorkflow)}.
 
-load_all_lines(Device) ->
-    ClientInfos = load_line(Device, []),
-    ets:insert(?MODULE, {client_infos, ClientInfos}).
-
-load_line(Device, Acc) ->
+load_line_by_line(Device, {Acc, Num}) ->
     case file:read_line(Device) of
-        eof -> Acc;
+        eof -> {Acc, Num};
         {ok, ClientInfo} ->
-           load_line(Device, [ClientInfo | Acc])
+           load_line_by_line(Device, {[ClientInfo | Acc], Num+1})
     end.
 
 get_client_info() ->
@@ -42,3 +46,39 @@ get_client_info() ->
 get_workflow() ->
     [{_, Workflow}] =  ets:lookup(?MODULE, workflow),
     Workflow.
+
+tasks_with_grouped_client_infos(Tasks, ClientInfos) ->
+    TotalWeight = total_weight(Tasks),
+    TotalNum = length(ClientInfos),
+    {NewTasks, _, _} = lists:foldl(fun
+        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow}, {TasksAcc, RemClientInfos0, RemNum0})
+                when RemClientInfos0 =:= []; RemNum0 =:= 1 ->
+            {[#{group_name => GrpName,
+                work_flow => WorkFlow,
+                client_infos => RemClientInfos0} | TasksAcc], [], 0};
+        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow, <<"weight">> := Weight}, {TasksAcc, RemClientInfos0, RemNum0}) ->
+            {GroupClientInfos, RemClientInfos} = lists_split(number_by_weight(Weight, TotalWeight, TotalNum), RemClientInfos0),
+            {[#{group_name => GrpName,
+                work_flow => WorkFlow,
+                client_infos => GroupClientInfos} | TasksAcc],
+             RemClientInfos, RemNum0-1}
+        end, {[], ClientInfos, TotalNum}, Tasks),
+    NewTasks.
+
+total_weight(Tasks) ->
+    lists:foldl(fun(#{<<"weight">> := Weight}, WeightAcc) when is_integer(Weight) ->
+            WeightAcc + Weight
+        end, 0, Tasks).
+
+number_by_weight(Weight, TotalWeight, TotalNum) ->
+    ceil((Weight / TotalWeight) * TotalNum).
+
+lists_split(Len, List) ->
+    try lists:split(Len, List)
+    catch
+        error:badarg ->
+            case Len > length(List) of
+                true -> {List, []};
+                false -> error({invalid_split, Len, List})
+            end
+    end.
