@@ -1,7 +1,7 @@
 -module(coap_bench_client_info).
 
 -export([init/0, is_ready/0, load_client_info/2, load_workflow/2,
-        get_client_info/0, get_workflow/0]).
+        get_client_info/0, get_workflow/0, load_all_lines/1]).
 
 init() ->
     ets:new(?MODULE, [named_table, set, public]),
@@ -23,18 +23,15 @@ load_client_info(file, FileName) ->
     ok.
 
 load_all_lines(Device) ->
-    case io:get_line(Device, "") of
-        eof  -> [];
-        Line when Line =/= "" ->
-            load_line(Line),
-            load_all_lines(Device)
-    end,
-    ok.
+    ClientInfos = load_line(Device, []),
+    ets:insert(?MODULE, {client_infos, ClientInfos}).
 
-load_line(ClientInfo) ->
-    ets:insert(?MODULE,
-        {client_infos, [ClientInfo|coap_bench_client_info:get_client_info()]}),
-    ok.
+load_line(Device, Acc) ->
+    case file:read_line(Device) of
+        eof -> Acc;
+        {ok, ClientInfo} ->
+           load_line(Device, [ClientInfo | Acc])
+    end.
 
 get_client_info() ->
    case ets:lookup(?MODULE, client_infos) of
