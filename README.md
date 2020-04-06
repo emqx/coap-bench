@@ -1,112 +1,103 @@
 coap_bench
-=====
+==========
 
-An OTP application
+This tool runs as a local services and send msgs for benchmarking your CoAP or LwM2M server. Each LwM2M simulator will run multiple tasks sequentially specified in the workflow file.
 
 Build
 -----
 
-    $ rebar3 compile
+    $ make rel
 
 Usage
 -----
 
-    $ COAP_NODE_NAME='coap1@127.0.0.1' ./bin/coap_bench console
+    $ cd _build/default/rel/coap_bench
+
+    $ ./bin/coap_bench start
 
     $ ./bin/coap_bench load data/client_info.csv data/workflow.json
 
-    $ ./bin/coap_bench run -H 127.0.0.1 -P 5683 -B "127.0.0.1,127.0.0.1"
+    Loading profiles into memory...
+
+    9 clients loaded from client info file:	"data/client_info.csv"
+    2 groups  loaded from workflow file:	"data/workflow.json"
+
+    $ ./bin/coap_bench run -F -H 127.0.0.1 -P 5683 -B "127.0.0.1"
+    Force start test with conf: #{binds => [{127,0,0,1}],
+                              conn_interval => 10,
+                              host => {127,0,0,1},
+                              port => 5683}
 
     $ ./bin/coap_bench status
+    ============================================================
+    RunningTaskGroup                                RunningSims
+    ------------------------------------------------------------
+    sim_group_notify                                : 0
+    sim_group_register_only                         : 0
+
+    TaskGroup Total: 2, Sims Total: 0
+    ============================================================
+    ============================================================
+    Metrics                                         Value
+    ------------------------------------------------------------
+    REGISTER_SUCC                                   : 9
+    REGISTER_FAIL                                   : 0
+    REGISTER                                        : 9
+    NOTIFY                                          : 4
+    DEREGISTER_SUCC                                 : 9
+    DEREGISTER_FAIL                                 : 0
+    DEREGISTER                                      : 9
+    WAIT_OBSERVE                                    : 8
+    WAIT_OBSERVE_SUCC                               : 8
+    WAIT_OBSERVE_FAIL                               : 0
+    CON_SENT                                        : 18
+    CON_SEND_FAIL                                   : 0
+    CON_RCVD                                        : 8
+    ACK_SENT                                        : 8
+    ACK_SEND_FAIL                                   : 0
+    ACK_RCVD                                        : 18
+    NON_SENT                                        : 4
+    NON_SEND_FAIL                                   : 0
+    NON_RCVD                                        : 0
+    RST_SENT                                        : 0
+    RST_SEND_FAIL                                   : 0
+    RST_RCVD                                        : 0
+    ============================================================
+
+    $ ./bin/coap_bench clear
+    Stop all task groups
+
+    $ ./bin/coap_bench stop
+    ok
 
 Design
 ------
 
 ```
-                        run -----
-                                |
-                                V
-    NODE1                     NODE2                       NODE3
-                (data_set1)              (data_set2)
-sim_manager  <----------  sim_manager -------------->  sim_manager
-                        (calc_data_sets)
-
-
         sim_manager
-        /        \             (data_set_group)
+        /        \
     sim_group ... sim_group
-    /   \         /    \       (work_flow)
+    /   \         /    \
 sim ... sim     sim ... sim
 ```
 
-Data file
----------
+Client Info file
+----------------
 
 Should be of csv type:
 
-An example data file with only the endpoint name:
+An example client info file with only the endpoint name:
 
 ```
 874625413356234
 874625413356235
 ```
 
-Another example data file that contains epname, lifetime, and PSK:
+Another example client info file that contains epname, lifetime, and PSK:
 
 ```
 874625413356234,60,beifnigbabef
 874625413356235,120,exnaoeitbqid
-```
-
-Simulators distribution
------------------------
-
-Auto distribute by NIC numbers of each node:
-
-```
-{
-    "distribute": "auto",
-    "topology": [
-        "coap_bench1@192.168.1.21",
-        "coap_bench2@192.168.1.22"
-    ]
-}
-```
-
-Or set the weight of each node manually:
-
-```
-{
-    "distribute": "weight",
-    "topology": {
-        "coap_bench1@192.168.1.21": 10, %% we suggest set weight == (num of NICs of current node)
-        "coap_bench2@192.168.1.22": 10
-    }
-}
-```
-
-It would be nice if we could set the exact sim numbers on each node:
-
-```
-{
-    "distribute": "count",
-    "topology": {
-        "coap_bench1@192.168.1.21": 30000,
-        "coap_bench2@192.168.1.22": 50000
-    }
-}
-```
-
-Or by range?
-
-```
-{
-    "distribute": "range",
-    "topology": {
-        "coap_bench1@192.168.1.21": 0-29999,
-        "coap_bench2@192.168.1.22": 30000-49999
-    }
-}
 ```
 
 Workflow
@@ -158,7 +149,7 @@ An example workflow for LwM2M:
     }
 ]
 
-TODO: Support loop
+TODO: Support task repeat
 
 "work_flow":[
     {
@@ -184,6 +175,4 @@ TODO: Support loop
     }
 ]
 
-- Support variables in the workflow, e.g. "$1" denotes the first field of the current line in the data file, and "$2" denotes the second one, and so on.
-
-- 
+- Support variables in the workflow, e.g. "$1" denotes the first field of the current line in the client info file, and "$2" denotes the second one, and so on.

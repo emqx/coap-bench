@@ -15,13 +15,13 @@ init_cli() ->
         "A benchmark tool for testing CoAP/LwM2M servers.\n"
         "\n"
         "This tool runs as a local services and send msgs for benchmarking your\n"
-        "CoAP or LwM2M server. You could start a cluster of coap_bench to genertate\n"
-        "massive amount of simlation concurrent clients!\n"
+        "CoAP or LwM2M server.\n"
         "\n",
         [
             {h, "-H, --host", "CoAP/LwM2M server hostname or IP address. [delfault: 127.0.0.1]", [{metavar, "HOST"}]},
             {p, "-P, --port", "CoAP/LwM2M server port number. [delfault: 5683]", [{metavar, "PORT"}]},
             {i, "-I, --connect-interval", "Interval of connecting to the CoAP/LwM2M server in ms, can be used to control the connectoin establish speed. [delfault: 10]", [{metavar, "INTERVAL"}]},
+            {f, "-F, --force", "Force stop all the running tests before run new tests. [delfault: not force]", [flag]},
             {b, "-B, --bind", "Local IP address to bind on. Separated by commas if there're many IP addresses to be bind. [delfault: 127.0.0.1]", [{metavar, "LOCAL_IP_ADDRs"}]}
         ],
         [{version,
@@ -102,9 +102,13 @@ handle_args(run, {Opts, []}) ->
     case coap_bench_profiles:is_ready() of
         true ->
             Conf = parse_conf(Opts),
-            case sim_manager:start_sim_groups(Conf) of
-                ok -> io:format("Test started with conf: ~p~n", [Conf])
-            end;
+            case proplists:get_value(f, Opts, false) of
+                true ->
+                    sim_manager:stop_sim_groups(),
+                    io:format("Force start test with conf: ~p~n", [Conf]);
+                false -> io:format("Start test with conf: ~p~n", [Conf])
+            end,
+            ok = sim_manager:start_sim_groups(Conf);
         false ->
             io:format("Not initialized. Please do 'coap_bench load <client-info-file> <workflow-file>' first!~n")
     end;
