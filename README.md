@@ -105,6 +105,7 @@ Workflow
 
 An example workflow for LwM2M:
 
+```json
 [
     {
         "group_name":"register_only",
@@ -148,9 +149,11 @@ An example workflow for LwM2M:
         ]
     }
 ]
+```
 
 TODO: Support task repeat
 
+```json
 "work_flow":[
     {
         "task":"register",
@@ -174,5 +177,6 @@ TODO: Support task repeat
         "task":"deregister"
     }
 ]
+```
 
 - Support variables in the workflow, e.g. "$1" denotes the first field of the current line in the client info file, and "$2" denotes the second one, and so on.
