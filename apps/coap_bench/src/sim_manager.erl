@@ -37,8 +37,8 @@ init([]) ->
     {ok, {SupFlags, ChildSpecs}}.
 
 start_sim_groups(Conf) ->
-    R =
-     [(fun() ->
+    [spawn(
+    fun() ->
         GroupName = group_name(GrpName),
         try
             {ok, _} = supervisor:start_child(?MODULE, [GroupName]),
@@ -50,13 +50,11 @@ start_sim_groups(Conf) ->
                 io:format("TaskGroup: ~p failed to start: ~0p~n", [GroupName, {Err,Reason,ST}]),
                 {start_group_failed, {GroupName, {Err, Reason}}}
         end
-     end)() || #{group_name := GrpName,
-                 work_flow := WorkFlow,
-                 client_infos := GroupClientInfos} <- coap_bench_profiles:get_client_info()],
-    case lists:filter(fun(ok) -> false; (_) -> true end, R) of
-        [] -> ok;
-        Result -> {error, Result}
-    end.
+    end)
+    || #{group_name := GrpName,
+        work_flow := WorkFlow,
+        client_infos := GroupClientInfos} <- coap_bench_profiles:get_client_info()],
+    ok.
 
 stop_sim_groups() ->
     [supervisor:terminate_child(?MANAGER, GrpPid)

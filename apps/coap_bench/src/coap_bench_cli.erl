@@ -103,10 +103,7 @@ handle_args(run, {Opts, []}) ->
         true ->
             Conf = parse_conf(Opts),
             case sim_manager:start_sim_groups(Conf) of
-                ok -> io:format("Test started successfully with conf: ~p~n", [Conf]);
-                {error, Reason} ->
-                    io:format("Test failed with reason: ~p~nConf: ~p~n", [Reason, Conf]),
-                    sim_manager:stop_sim_groups()
+                ok -> io:format("Test started with conf: ~p~n", [Conf])
             end;
         false ->
             io:format("Not initialized. Please do 'coap_bench load <client-info-file> <workflow-file>' first!~n")
