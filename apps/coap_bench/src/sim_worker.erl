@@ -53,8 +53,6 @@ working(internal, continue_workflow, Data) ->
 working(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
-wait_coap_msg(enter, _OldState, _Data) ->
-    keep_state_and_data;
 wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
              #data{verify_msg = Validitor, sock = Sock} = Data) when is_function(Validitor) ->
     try
@@ -79,8 +77,6 @@ wait_coap_msg(state_timeout, wait_msg_timeout, _Data) ->
 wait_coap_msg(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
-sleep(enter, _OldState, _Data) ->
-    keep_state_and_data;
 sleep(state_timeout, wakeup, Data) ->
     continue_working(Data);
 sleep(EventType, Event, Data) ->
@@ -168,7 +164,7 @@ process_task(#data{workflow = [{notify, #{path := Path} = BodyOpts} = Task | Wor
 
 process_task(#data{workflow = [{sleep, #{interval := Sec}} = Task | WorkFlow]} = Data) ->
     {next_state, sleep, Data#data{workflow = WorkFlow, current_task = Task},
-        [{state_timeout, timer:seconds(Sec), wakeup}]};
+        [{state_timeout, timer:seconds(Sec), wakeup}, hibernate]};
 
 process_task(#data{workflow = [Task | WorkFlow]} = Data) ->
     logger:error("unknow workflow: ~p", [Task]),
@@ -176,6 +172,11 @@ process_task(#data{workflow = [Task | WorkFlow]} = Data) ->
 
 handle_common_events(StateName, EventType, Event, _Data) ->
     logger:warning("received unexpected event: ~p in state: ~p", [{EventType, Event}, StateName]),
+    common_events_state(StateName).
+
+common_events_state(sleep) ->
+    {keep_state_and_data, [hibernate]};
+common_events_state(_StateName) ->
     keep_state_and_data.
 
 terminate(Reason, _State, #data{workflow = [], sock = Sock}) ->
