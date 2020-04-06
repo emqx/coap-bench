@@ -1,4 +1,4 @@
--module(lwm2m_cmd).
+-module(coap_bench_message).
 
 -export([ make_register/4
         , make_deregister/2
@@ -8,6 +8,9 @@
         , make_ack/4
         , uri_path/1
         , token/1
+        , incr_counter_sent/1
+        , incr_counter_send_fail/1
+        , incr_counter_rcvd/1
         ]).
 
 -include_lib("lwm2m_coap/include/coap.hrl").
@@ -49,13 +52,43 @@ ack_validator(#coap_message{type = ack, id = MsgId}, MsgId) -> true;
 ack_validator(_, _) -> false.
 
 location_path(#coap_message{options = Options}) ->
-    proplists:get_value(location_path, Options, []).
+    proplists:get_value(location_path, Options, []);
+location_path(_) -> [].
 
 uri_path(#coap_message{options = Options}) ->
-    proplists:get_value(uri_path, Options, []).
+    proplists:get_value(uri_path, Options, []);
+uri_path(_) -> [].
 
 token(#coap_message{token = Token}) ->
-    Token.
+    Token;
+token(_) -> undefined.
+
+incr_counter_sent(#coap_message{type = con}) ->
+    coap_bench_metrics:incr('CON_SENT');
+incr_counter_sent(#coap_message{type = non}) ->
+    coap_bench_metrics:incr('NON_SENT');
+incr_counter_sent(#coap_message{type = reset}) ->
+    coap_bench_metrics:incr('RST_SENT');
+incr_counter_sent(#coap_message{type = ack}) ->
+    coap_bench_metrics:incr('ACK_SENT').
+
+incr_counter_send_fail(#coap_message{type = con}) ->
+    coap_bench_metrics:incr('CON_SEND_FAIL');
+incr_counter_send_fail(#coap_message{type = non}) ->
+    coap_bench_metrics:incr('NON_SEND_FAIL');
+incr_counter_send_fail(#coap_message{type = reset}) ->
+    coap_bench_metrics:incr('RST_SEND_FAIL');
+incr_counter_send_fail(#coap_message{type = ack}) ->
+    coap_bench_metrics:incr('ACK_SEND_FAIL').
+
+incr_counter_rcvd(#coap_message{type = con}) ->
+    coap_bench_metrics:incr('CON_RCVD');
+incr_counter_rcvd(#coap_message{type = non}) ->
+    coap_bench_metrics:incr('NON_RCVD');
+incr_counter_rcvd(#coap_message{type = reset}) ->
+    coap_bench_metrics:incr('RST_RCVD');
+incr_counter_rcvd(#coap_message{type = ack}) ->
+    coap_bench_metrics:incr('ACK_RCVD').
 
 bin(Int) when is_integer(Int) ->
     integer_to_binary(Int);

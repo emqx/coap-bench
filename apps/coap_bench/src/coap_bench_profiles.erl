@@ -1,4 +1,4 @@
--module(coap_bench_client_info).
+-module(coap_bench_profiles).
 
 -export([ init/0
         , is_ready/0

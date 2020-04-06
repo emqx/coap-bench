@@ -52,7 +52,7 @@ start_sim_groups(Conf) ->
         end
      end)() || #{group_name := GrpName,
                  work_flow := WorkFlow,
-                 client_infos := GroupClientInfos} <- coap_bench_client_info:get_client_info()],
+                 client_infos := GroupClientInfos} <- coap_bench_profiles:get_client_info()],
     case lists:filter(fun(ok) -> false; (_) -> true end, R) of
         [] -> ok;
         Result -> {error, Result}

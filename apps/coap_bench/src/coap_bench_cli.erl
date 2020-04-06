@@ -86,11 +86,20 @@ command([Type | Args]) ->
     end.
 
 handle_args(status, {Opts, _Args}) ->
-    proplists:get_value(s, Opts, true) andalso print_status(),
-    proplists:get_value(m, Opts, true) andalso print_metrics();
+    case sim_manager:status(count) of
+        0 ->
+            io:format("No Running Task Groups!~n");
+        GrpCount ->
+            case {proplists:get_value(s, Opts, false), proplists:get_value(m, Opts, false)} of
+                {false, false} -> print_status(GrpCount),print_metrics();
+                {true, true} -> print_status(GrpCount),print_metrics();
+                {true, false} -> print_status(GrpCount);
+                {false, true} -> print_metrics()
+             end
+    end;
 
 handle_args(run, {Opts, []}) ->
-    case coap_bench_client_info:is_ready() of
+    case coap_bench_profiles:is_ready() of
         true ->
             Conf = parse_conf(Opts),
             case sim_manager:start_sim_groups(Conf) of
@@ -117,31 +126,36 @@ handle_args(clear, {Opts, _}) ->
     end;
 
 handle_args(load, {_, [ClientInfoFile, WorkflowFile]}) ->
-    {ClientCount, GroupsCount} = coap_bench_client_info:load_profiles(ClientInfoFile, WorkflowFile),
-    io:format("Loading profiles into memory:~n"
-              "- ClientInfoFile:\t~p\t~p clients~n"
-              "- WorkflowFile:  \t~p\t~p groups~n",
-              [ClientInfoFile, ClientCount,
-               WorkflowFile, GroupsCount]);
+    {ClientCount, GroupsCount} = coap_bench_profiles:load_profiles(ClientInfoFile, WorkflowFile),
+    io:format("~nLoading profiles into memory...~n~n"
+              "~p clients loaded from client info file:\t~p~n"
+              "~p groups  loaded from workflow file:\t~p~n",
+              [ClientCount, ClientInfoFile,
+               GroupsCount, WorkflowFile]);
 handle_args(load, {_, _}) ->
     io:format("coap_bench load only accept 2 arguments!~n").
 
-print_status() ->
-    case sim_manager:status(count) of
-        0 ->
-            io:format("No Running Task Groups!~n");
-        GrpCount ->
-            io:format("~60..=s~n", [""]),
-            io:format("Total ~w Running Task Groups~n", [GrpCount]),
-            io:format("~60..=s~n", [""]),
-            io:format("~-48s~s~n", ["TaskGroup", "RunningSims"]),
-            io:format("~60..-s~n", [""]),
-            [io:format("~-48s: ~p~n", [GrpName, SimCount])
-            || {GrpName, SimCount} <- sim_manager:status(list)]
-    end.
+print_status(GrpCount) ->
+    io:format("~60..=s~n", [""]),
+    io:format("~-48s~s~n", ["RunningTaskGroup", "RunningSims"]),
+    io:format("~60..-s~n", [""]),
+    SimCountTotal =
+        lists:foldl(fun({GrpName, SimCount}, CountAcc) ->
+            io:format("~-48s: ~p~n", [GrpName, SimCount]),
+            CountAcc + SimCount
+        end, 0, sim_manager:status(list)),
+    io:format("~n"),
+    io:format("TaskGroup Total: ~w, Sims Total: ~w~n", [GrpCount, SimCountTotal]),
+    io:format("~60..=s~n", [""]).
 
 print_metrics() ->
-    ok.
+    io:format("~60..=s~n", [""]),
+    io:format("~-48s~s~n", ["Metrics", "Value"]),
+    io:format("~60..-s~n", [""]),
+    lists:foreach(fun({Metric, Value}) ->
+            io:format("~-48s: ~p~n", [Metric, Value])
+        end, coap_bench_metrics:get_all()),
+    io:format("~60..=s~n", [""]).
 
 parse_conf(Opts) ->
     {ok, Host} = inet:parse_address(proplists:get_value(h, Opts, "127.0.0.1")),

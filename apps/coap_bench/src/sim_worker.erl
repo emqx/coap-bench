@@ -23,6 +23,7 @@
             location = [],
             observed = #{},
             workflow :: [],
+            current_task,
             verify_msg :: fun((term()) -> {ok, #data{}} | {error, term()})
         }).
 
@@ -39,6 +40,7 @@ init([WorkFlow, Vars, Conf = #{binds := Binds}]) ->
             conf = Conf,
             nextmid = first_mid(),
             workflow = trans_workflow(WorkFlow, Vars),
+            current_task = undefined,
             verify_msg = undefined
         }, [{next_event, internal, continue_workflow}]}.
 
@@ -59,6 +61,7 @@ wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
         lwm2m_coap_message_parser:decode(Packet)
     of
         CoapMsg ->
+            coap_bench_message:incr_counter_rcvd(CoapMsg),
             case Validitor(CoapMsg, Data) of
                 {ok, StateData} ->
                     continue_working(StateData#data{verify_msg = undefined});
@@ -87,76 +90,89 @@ sleep(EventType, Event, Data) ->
 %% Process tasks and tranform the state
 %% -------------------------------------------
 
-process_task(#data{workflow = []}) ->
-    {stop, {shutdown, workflow_complete}};
+process_task(#data{workflow = []} = Data) ->
+    {stop, {shutdown, workflow_complete}, Data#data{current_task = undefined}};
 
-process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks}} | WorkFlow],
+process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor =
         fun(RcvdMsg, StateData0) ->
-            case {lwm2m_cmd:ack_validator(RcvdMsg, MsgId), lwm2m_cmd:location_path(RcvdMsg)} of
-                {_, []} -> {error, no_location_path};
+            case {coap_bench_message:ack_validator(RcvdMsg, MsgId), coap_bench_message:location_path(RcvdMsg)} of
+                {_, []} ->
+                    coap_bench_metrics:incr('REGISTER_FAIL'),
+                    {error, no_location_path};
                 {true, LocationPath} ->
+                    coap_bench_metrics:incr('REGISTER_SUCC'),
                     {ok, StateData0#data{location = LocationPath}}
             end
         end,
-    send_request(Sock, Host, Port, lwm2m_cmd:make_register(Ep, Lifetime, MsgId, ObjectLinks), Data, WorkFlow, MsgId, Validitor);
+    coap_bench_metrics:incr('REGISTER'),
+    send_request(Sock, Host, Port, coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks), Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
 
-process_task(#data{workflow = [{deregister, #{}} | WorkFlow],
+process_task(#data{workflow = [{deregister, #{}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    location = Location,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor =
         fun(RcvdMsg, StateData0) ->
-            case lwm2m_cmd:ack_validator(RcvdMsg, MsgId) of
-                true -> {ok, StateData0};
-                false -> {error, ack_not_matched}
+            case coap_bench_message:ack_validator(RcvdMsg, MsgId) of
+                true ->
+                    coap_bench_metrics:incr('DEREGISTER_SUCC'),
+                    {ok, StateData0};
+                false ->
+                    coap_bench_metrics:incr('DEREGISTER_FAIL'),
+                    {error, ack_not_matched}
             end
         end,
-    send_request(Sock, Host, Port, lwm2m_cmd:make_deregister(Location, MsgId), Data, WorkFlow, MsgId, Validitor);
+    coap_bench_metrics:incr('DEREGISTER'),
+    send_request(Sock, Host, Port, coap_bench_message:make_deregister(Location, MsgId), Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
 
-process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec} = BodyOpts} | WorkFlow],
+process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor =
         fun(RcvdMsg, StateData0 = #data{observed = Observed}) ->
-            case {lwm2m_cmd:uri_path(RcvdMsg), lwm2m_cmd:token(RcvdMsg)} of
-                {Path0, Token0} when Path0 =:= Path ->
-                    Ack = lwm2m_cmd:make_ack(RcvdMsg, {ok, content}, make_body(BodyOpts),
+            case {coap_bench_message:uri_path(RcvdMsg), coap_bench_message:token(RcvdMsg)} of
+                {Path0, Token0} when Path0 =:= Path, is_binary(Token0) ->
+                    Ack = coap_bench_message:make_ack(RcvdMsg, {ok, content}, make_body(BodyOpts),
                             [{content_format, <<"application/vnd.oma.lwm2m+tlv">>}]),
-                    gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(Ack)),
+                    send_msg(Sock, Host, Port, Ack),
+                    coap_bench_metrics:incr('WAIT_OBSERVE_SUCC'),
                     {ok, StateData0#data{observed = Observed#{Path0 => Token0}}};
-                {_Path0, _Token0} ->
-                    {error, observe_path_not_matched}
+                {Path0, Token0} ->
+                    coap_bench_metrics:incr('WAIT_OBSERVE_FAIL'),
+                    {error, {observe_path_not_matched, Path0, Token0}}
             end
         end,
-    {next_state, wait_coap_msg, Data#data{workflow = WorkFlow, verify_msg = Validitor, nextmid = next_mid(MsgId)},
+    coap_bench_metrics:incr('WAIT_OBSERVE'),
+    {next_state, wait_coap_msg, Data#data{current_task = Task, workflow = WorkFlow, verify_msg = Validitor, nextmid = next_mid(MsgId)},
         [{state_timeout, timer:seconds(Sec), wait_msg_timeout}]};
 
-process_task(#data{workflow = [{notify, #{path := Path} = BodyOpts} | WorkFlow],
+process_task(#data{workflow = [{notify, #{path := Path} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    observed = Observed,
                    conf = #{host := Host, port := Port}} = Data) ->
     case maps:find(Path, Observed) of
         {ok, Token} ->
-            Notify = lwm2m_cmd:make_notify(Token, MsgId, make_body(BodyOpts)),
-            send_response(Sock, Host, Port, Notify, Data, WorkFlow, MsgId);
+            coap_bench_metrics:incr('NOTIFY'),
+            Notify = coap_bench_message:make_notify(Token, MsgId, make_body(BodyOpts)),
+            send_response(Sock, Host, Port, Notify, Data#data{current_task = Task}, WorkFlow, MsgId);
         error ->
-            {stop, {shutdown, {not_observed, Path}}}
+            {stop, {shutdown, {not_observed, Path}}, Data#data{current_task = Task}}
     end;
 
-process_task(#data{workflow = [{sleep, #{interval := Sec}} | WorkFlow]} = Data) ->
-    {next_state, sleep, Data#data{workflow = WorkFlow},
+process_task(#data{workflow = [{sleep, #{interval := Sec}} = Task | WorkFlow]} = Data) ->
+    {next_state, sleep, Data#data{workflow = WorkFlow, current_task = Task},
         [{state_timeout, timer:seconds(Sec), wakeup}]};
 
-process_task(#data{workflow = [Flow | WorkFlow]} = Data) ->
-    logger:error("unknow workflow: ~p", [Flow]),
-    {keep_state, Data#data{workflow = WorkFlow}, []}.
+process_task(#data{workflow = [Task | WorkFlow]} = Data) ->
+    logger:error("unknow workflow: ~p", [Task]),
+    {keep_state, Data#data{current_task = Task, workflow = WorkFlow}, []}.
 
 handle_common_events(StateName, EventType, Event, _Data) ->
     logger:warning("received unexpected event: ~p in state: ~p", [{EventType, Event}, StateName]),
@@ -165,16 +181,16 @@ handle_common_events(StateName, EventType, Event, _Data) ->
 terminate(Reason, _State, #data{workflow = [], sock = Sock}) ->
     gen_udp:close(Sock),
     logger:debug("[~p] terminate: ~p", [?MODULE, Reason]);
-terminate(Reason, _State, #data{workflow = Tasks, sock = Sock}) ->
+terminate(Reason, _State, #data{workflow = Tasks, current_task = Task, sock = Sock}) ->
     gen_udp:close(Sock),
-    logger:error("[~p] terminate with pending tasks: ~p, reason: ~p", [?MODULE, Tasks, Reason]).
+    logger:error("[~p] terminate when running task: ~p, pending tasks in the queue: ~p, reason: ~p", [?MODULE, Task, Tasks, Reason]).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
 send_request(Sock, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId, Validitor) ->
-    case gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(CoapMsg)) of
+    case send_msg(Sock, Host, Port, CoapMsg) of
         ok ->
             {next_state, wait_coap_msg,
                 StateData#data{
@@ -188,7 +204,7 @@ send_request(Sock, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId, Validitor
             {stop, {shutdown, Reason}}
     end.
 send_response(Sock, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId) ->
-    case gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(CoapMsg)) of
+    case send_msg(Sock, Host, Port, CoapMsg) of
         ok ->
              continue_working(StateData#data{
                  nextmid = next_mid(MsgId),
@@ -197,6 +213,16 @@ send_response(Sock, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId) ->
         {error, Reason} ->
             logger:error("send request failed: ~p", [Reason]),
             {stop, {shutdown, Reason}}
+    end.
+
+send_msg(Sock, Host, Port, CoapMsg) ->
+    case gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(CoapMsg)) of
+        {error, Reason} ->
+            coap_bench_message:incr_counter_send_fail(CoapMsg),
+            {error, Reason};
+        ok ->
+            coap_bench_message:incr_counter_sent(CoapMsg),
+            ok
     end.
 
 continue_working(StateData) ->

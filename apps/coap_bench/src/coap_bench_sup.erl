@@ -15,7 +15,7 @@
 
 start_link() ->
     ok = coap_bench_cli:init_cli(),
-    ok = coap_bench_client_info:init(),
+    ok = coap_bench_profiles:init(),
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
