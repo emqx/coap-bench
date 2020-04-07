@@ -35,10 +35,10 @@ SCRIPT_DIR="$(cd `dirname "$SCRIPT"` && pwd -P)"
 RELEASE_ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 # Make the value available to variable substitution calls below
 export REL_NAME="coap_bench"
-REL_VSN="0.1.0"
-ERTS_VSN="10.4.4"
+REL_VSN="{{ rel_vsn }}"
+ERTS_VSN="{{ erts_vsn }}"
 REL_DIR="$RELEASE_ROOT_DIR/releases/$REL_VSN"
-ERL_OPTS=""
+ERL_OPTS="{{ erl_opts }}"
 RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-$RELEASE_ROOT_DIR/log}"
 export ESCRIPT_NAME="${ESCRIPT_NAME-$SCRIPT}"
 
