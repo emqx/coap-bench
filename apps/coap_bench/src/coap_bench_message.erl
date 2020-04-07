@@ -2,7 +2,8 @@
 
 -export([ make_register/4
         , make_deregister/2
-        , make_notify/3
+        , make_notify/5
+        , make_notify/6
         , ack_validator/2
         , location_path/1
         , make_ack/4
@@ -25,9 +26,11 @@ make_deregister(Location, MsgId) when is_list(Location) ->
     coap_message(con, delete, <<>>, MsgId, crypto:strong_rand_bytes(4),
         [{uri_path, Location}]).
 
-make_notify(Token, MsgId, Body) ->
-    coap_message(non, {ok, content}, Body, MsgId, Token,
-        [{observe, rand:uniform(9999)}, {content_format, <<"application/vnd.oma.lwm2m+tlv">>}]).
+make_notify(Type, Token, MsgId, Body, Observe, ContentFormat) ->
+    make_notify(Type, Token, MsgId, Body, [{observe, Observe}, {content_format, ContentFormat}]).
+
+make_notify(Type, Token, MsgId, Body, Options) when is_list(Options) ->
+    coap_message(Type, {ok, content}, Body, MsgId, Token, Options).
 
 coap_message(Type, Method, Payload, MsgId, Token, Options) ->
     #coap_message{

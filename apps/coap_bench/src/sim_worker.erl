@@ -98,7 +98,10 @@ process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, obje
             case {coap_bench_message:ack_validator(RcvdMsg, MsgId), coap_bench_message:location_path(RcvdMsg)} of
                 {_, []} ->
                     coap_bench_metrics:incr('REGISTER_FAIL'),
-                    {error, no_location_path};
+                    {error, {no_location_path, RcvdMsg}};
+                {false, _} ->
+                    coap_bench_metrics:incr('REGISTER_FAIL'),
+                    {error, {ack_not_matched, MsgId, RcvdMsg}};
                 {true, LocationPath} ->
                     coap_bench_metrics:incr('REGISTER_SUCC'),
                     {ok, StateData0#data{location = LocationPath}}
@@ -120,13 +123,13 @@ process_task(#data{workflow = [{deregister, #{}} = Task | WorkFlow],
                     {ok, StateData0};
                 false ->
                     coap_bench_metrics:incr('DEREGISTER_FAIL'),
-                    {error, ack_not_matched}
+                    {error, {ack_not_matched, MsgId, RcvdMsg}}
             end
         end,
     coap_bench_metrics:incr('DEREGISTER'),
     send_request(Sock, Host, Port, coap_bench_message:make_deregister(Location, MsgId), Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
 
-process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec} = BodyOpts} = Task | WorkFlow],
+process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
@@ -135,7 +138,7 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec} = 
             case {coap_bench_message:uri_path(RcvdMsg), coap_bench_message:token(RcvdMsg)} of
                 {Path0, Token0} when Path0 =:= Path, is_binary(Token0) ->
                     Ack = coap_bench_message:make_ack(RcvdMsg, {ok, content}, make_body(BodyOpts),
-                            [{content_format, <<"application/vnd.oma.lwm2m+tlv">>}]),
+                            [{observe, 0}, {content_format, ContentFormat}]),
                     send_msg(Sock, Host, Port, Ack),
                     coap_bench_metrics:incr('WAIT_OBSERVE_SUCC'),
                     {ok, StateData0#data{observed = Observed#{Path0 => Token0}}};
@@ -148,7 +151,7 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec} = 
     {next_state, wait_coap_msg, Data#data{current_task = Task, workflow = WorkFlow, verify_msg = Validitor, nextmid = next_mid(MsgId)},
         [{state_timeout, timer:seconds(Sec), wait_msg_timeout}]};
 
-process_task(#data{workflow = [{notify, #{path := Path} = BodyOpts} = Task | WorkFlow],
+process_task(#data{workflow = [{notify, #{path := Path, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    observed = Observed,
@@ -156,7 +159,7 @@ process_task(#data{workflow = [{notify, #{path := Path} = BodyOpts} = Task | Wor
     case maps:find(Path, Observed) of
         {ok, Token} ->
             coap_bench_metrics:incr('NOTIFY'),
-            Notify = coap_bench_message:make_notify(Token, MsgId, make_body(BodyOpts)),
+            Notify = coap_bench_message:make_notify(non, Token, MsgId, make_body(BodyOpts), MsgId, ContentFormat),
             send_response(Sock, Host, Port, Notify, Data#data{current_task = Task}, WorkFlow, MsgId);
         error ->
             {stop, {shutdown, {not_observed, Path}}, Data#data{current_task = Task}}
@@ -229,12 +232,12 @@ send_msg(Sock, Host, Port, CoapMsg) ->
 continue_working(StateData) ->
     {next_state, working, StateData, [{next_event, internal, continue_workflow}]}.
 
-trans_workflow(WorkFlow, Data0) when is_list(WorkFlow) ->
-    Data = [bin(Tk) || Tk <- string:split(string:tokens(Data0, "\n"), ",", all)],
-    [do_trans_workflow(Flow, Data) || Flow <- WorkFlow].
+trans_workflow(WorkFlow, Vars0) when is_list(WorkFlow) ->
+    Vars = [bin(Tk) || Tk <- string:split(string:tokens(Vars0, "\n"), ",", all)],
+    [do_trans_workflow(Flow, Vars) || Flow <- WorkFlow].
 
-do_trans_workflow({FlowName, Opts}, Data) when is_map(Opts) ->
-    {FlowName, coap_bench_utils:replace_map_var(Opts, Data)}.
+do_trans_workflow({FlowName, Opts}, Vars) when is_map(Opts) ->
+    {FlowName, coap_bench_utils:replace_map_var(Opts, Vars)}.
 
 make_body(#{body := auto_gen_binary, size := Size} = _Opts) ->
     crypto:strong_rand_bytes(Size);

@@ -131,17 +131,30 @@ An example workflow for LwM2M:
         "work_flow":[
             {
                 "task":"register",
-                "lifetime":60
+                "ep": "$1",
+                "lifetime":60,
+                "object_links": "</>;rt=\"oma.lwm2m\",</3/0>,</19/0>"
             },
             {
                 "task":"wait_observe",
-                "path":"19/0/0",
+                "path":"/3/0",
+                "body":"$payload_3_0",
+                "content_format": "application/vnd.oma.lwm2m+tlv",
+                "timeout":120
+            },
+            {
+                "task":"wait_observe",
+                "path":"/19/0/0",
+                "body":"$payload_19_0_0",
                 "timeout":120
             },
             {
                 "task":"notify",
-                "path":"19/0/0",
-                "body": {"type": "auto_gen_binary", "size": 12}
+                "path":"/19/0/0",
+                "body": {
+                    "type": "auto_gen_binary",
+                    "size": 12
+                }
             },
             {
                 "task":"deregister"

@@ -29,22 +29,22 @@
             {
                 "task":"wait_observe",
                 "path":"/3/0",
-                "body": "abcde",
+                "body": "$payload_3_0",
+                "content_format": "application/vnd.oma.lwm2m+tlv",
                 "timeout": 5
             },
             {
                 "task":"wait_observe",
                 "path":"19/0/0",
-                "body": "abcde",
+                "body": "$payload_19_0_0",
+                "content_format": "application/octet-stream",
                 "timeout": 5
             },
             {
                 "task":"notify",
                 "path":"19/0/0",
-                "body": {
-                    "type": "auto_gen_binary",
-                    "size": 12
-                }
+                "body": "$payload_19_0_0",
+                "content_format": "application/octet-stream"
             },
             {
                 "task":"sleep",

@@ -88,18 +88,21 @@ do_parse_workflow(#{<<"task">> := <<"register">>} = Flow) ->
 do_parse_workflow(#{<<"task">> := <<"deregister">>}) ->
     {deregister, #{}};
 
-do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := Body, <<"path">> := Path, <<"timeout">> := Sec}) when is_binary(Body) ->
-    {wait_observe, #{path => path_list(Path), body => Body, timeout => Sec}};
-do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path, <<"timeout">> := Sec}) ->
-    {wait_observe, #{path => path_list(Path), body => auto_gen_binary, size => Size, timeout => Sec}};
+do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := Body, <<"path">> := Path, <<"timeout">> := Sec} = Flow) when is_binary(Body) ->
+    {wait_observe, #{path => path_list(Path), body => Body, timeout => Sec, content_format => content_format(Flow)}};
+do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path, <<"timeout">> := Sec} = Flow) ->
+    {wait_observe, #{path => path_list(Path), body => auto_gen_binary, size => Size, timeout => Sec, content_format => content_format(Flow)}};
 
-do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := Body, <<"path">> := Path}) when is_binary(Body) ->
-    {notify, #{body => Body, path => path_list(Path)}};
-do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path}) ->
-    {notify, #{body => auto_gen_binary, size => Size, path => path_list(Path)}};
+do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := Body, <<"path">> := Path} = Flow) when is_binary(Body) ->
+    {notify, #{body => Body, path => path_list(Path), content_format => content_format(Flow)}};
+do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path} = Flow) ->
+    {notify, #{body => auto_gen_binary, size => Size, path => path_list(Path), content_format => content_format(Flow)}};
 
 do_parse_workflow(#{<<"task">> := <<"sleep">>, <<"interval">> := Interval}) when is_integer(Interval) ->
     {sleep, #{interval => Interval}}.
+
+content_format(Flow) ->
+    maps:get(<<"content_format">>, Flow, <<"application/octet-stream">>).
 
 path_list(Path) ->
     string:lexemes(Path, "/ ").
