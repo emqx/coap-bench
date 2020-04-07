@@ -103,8 +103,10 @@ process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, obje
                    sock = Sock,
                    nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
-    Validitor =
-        fun(RcvdMsg, StateData0) ->
+    Validitor = fun
+        (timeout, _StateData0) ->
+            coap_bench_metrics:incr('REGISTER_TIMEOUT');
+        (RcvdMsg, StateData0) ->
             case {coap_bench_message:ack_validator(RcvdMsg, MsgId), coap_bench_message:location_path(RcvdMsg)} of
                 {_, []} ->
                     coap_bench_metrics:incr('REGISTER_FAIL'),
@@ -115,9 +117,7 @@ process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, obje
                 {true, LocationPath} ->
                     coap_bench_metrics:incr('REGISTER_SUCC'),
                     {ok, StateData0#data{location = LocationPath}}
-            end;
-           (timeout, _StateData0) ->
-               coap_bench_metrics:incr('REGISTER_TIMEOUT')
+            end
         end,
     coap_bench_metrics:incr('REGISTER'),
     send_request(Sock, Host, Port, coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
@@ -127,8 +127,10 @@ process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | Work
                    nextmid = MsgId,
                    location = Location,
                    conf = #{host := Host, port := Port}} = Data) ->
-    Validitor =
-        fun(RcvdMsg, StateData0) ->
+    Validitor = fun
+        (timeout, _StateData0) ->
+            coap_bench_metrics:incr('DEREGISTER_TIMEOUT');
+        (RcvdMsg, StateData0) ->
             case coap_bench_message:ack_validator(RcvdMsg, MsgId) of
                 true ->
                     coap_bench_metrics:incr('DEREGISTER_SUCC'),
@@ -136,9 +138,7 @@ process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | Work
                 false ->
                     coap_bench_metrics:incr('DEREGISTER_FAIL'),
                     {error, {ack_not_matched, MsgId, RcvdMsg}}
-            end;
-           (timeout, _StateData0) ->
-               coap_bench_metrics:incr('DEREGISTER_TIMEOUT')
+            end
         end,
     coap_bench_metrics:incr('DEREGISTER'),
     send_request(Sock, Host, Port, coap_bench_message:make_deregister(Location, MsgId), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
@@ -147,8 +147,10 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, co
                    sock = Sock,
                    nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
-    Validitor =
-        fun(RcvdMsg, StateData0 = #data{observed = Observed}) ->
+    Validitor = fun
+        (timeout, _StateData0) ->
+            coap_bench_metrics:incr('WAIT_OBSERVE_TIMEOUT');
+        (RcvdMsg, StateData0 = #data{observed = Observed}) ->
             case {coap_bench_message:uri_path(RcvdMsg), coap_bench_message:token(RcvdMsg)} of
                 {Path0, Token0} when Path0 =:= Path, is_binary(Token0) ->
                     Ack = coap_bench_message:make_ack(RcvdMsg, {ok, content}, make_body(BodyOpts),
@@ -159,9 +161,7 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, co
                 {Path0, Token0} ->
                     coap_bench_metrics:incr('WAIT_OBSERVE_FAIL'),
                     {error, {observe_path_not_matched, Path0, Token0}}
-            end;
-           (timeout, _StateData0) ->
-               coap_bench_metrics:incr('WAIT_OBSERVE_TIMEOUT')
+            end
         end,
     coap_bench_metrics:incr('WAIT_OBSERVE'),
     {next_state, wait_coap_msg, Data#data{current_task = Task, workflow = WorkFlow, verify_msg = Validitor, nextmid = next_mid(MsgId)},
