@@ -2,3 +2,6 @@
 -setcookie coap_bench_cookie
 +K true
 +A30
++e 5000
++Q 1000000
++P 2000000
