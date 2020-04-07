@@ -19,6 +19,7 @@
 -define(MANAGER, ?MODULE).
 
 -define(DEFAULT_OBJ_LINKS, <<"</>;rt=\"oma.lwm2m\",</1/0>,</3/0>">>).
+-define(REQ_TIMEOUT, 30). %% 30 seconds
 
 start_link() ->
     supervisor:start_link({local, ?MANAGER}, ?MODULE, []).
@@ -44,10 +45,10 @@ start_sim_groups(Conf) ->
             {ok, _} = supervisor:start_child(?MODULE, [GroupName]),
             sim_group:start_sims(GroupName, parse_workflow(WorkFlow), GroupClientInfos, Conf)
         of
-            ok -> io:format("TaskGroup: ~p started~n", [GroupName])
+            ok -> logger:info("TaskGroup: ~p started", [GroupName])
         catch
             Err:Reason:ST ->
-                io:format("TaskGroup: ~p failed to start: ~0p~n", [GroupName, {Err,Reason,ST}]),
+                logger:info("TaskGroup: ~p failed to start: ~0p", [GroupName, {Err,Reason,ST}]),
                 {start_group_failed, {GroupName, {Err, Reason}}}
         end
     end)
@@ -82,11 +83,12 @@ parse_workflow(WorkFlow) when is_list(WorkFlow) ->
 do_parse_workflow(#{<<"task">> := <<"register">>} = Flow) ->
     {register, #{lifetime => maps:get(<<"lifetime">>, Flow, 60),
                  ep => maps:get(<<"ep">>, Flow, <<"$uuid">>),
-                 object_links => maps:get(<<"object_links">>, Flow, ?DEFAULT_OBJ_LINKS)
+                 object_links => maps:get(<<"object_links">>, Flow, ?DEFAULT_OBJ_LINKS),
+                 timeout => maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT)
                 }};
 
-do_parse_workflow(#{<<"task">> := <<"deregister">>}) ->
-    {deregister, #{}};
+do_parse_workflow(#{<<"task">> := <<"deregister">>} = Flow) ->
+    {deregister, #{timeout => maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT)}};
 
 do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := Body, <<"path">> := Path, <<"timeout">> := Sec} = Flow) when is_binary(Body) ->
     {wait_observe, #{path => path_list(Path), body => Body, timeout => Sec, content_format => content_format(Flow)}};

@@ -24,6 +24,7 @@
                 "task":"register",
                 "ep": "$1",
                 "lifetime":120,
+                "timeout":60,
                 "object_links": "</>;rt=\"oma.lwm2m\",</3/0>,</19/0>"
             },
             {
@@ -31,14 +32,14 @@
                 "path":"/3/0",
                 "body": "$payload_3_0",
                 "content_format": "application/vnd.oma.lwm2m+tlv",
-                "timeout": 5
+                "timeout":60
             },
             {
                 "task":"wait_observe",
                 "path":"19/0/0",
                 "body": "$payload_19_0_0",
                 "content_format": "application/octet-stream",
-                "timeout": 5
+                "timeout":60
             },
             {
                 "task":"notify",
@@ -51,7 +52,8 @@
                 "interval": 30
             },
             {
-                "task":"deregister"
+                "task":"deregister",
+                "timeout":60
             }
         ]
     }

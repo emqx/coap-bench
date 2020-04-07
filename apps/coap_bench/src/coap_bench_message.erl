@@ -7,8 +7,10 @@
         , ack_validator/2
         , location_path/1
         , make_ack/4
+        , make_empty_ack/1
         , uri_path/1
         , token/1
+        , type/1
         , incr_counter_sent/1
         , incr_counter_send_fail/1
         , incr_counter_rcvd/1
@@ -42,6 +44,12 @@ coap_message(Type, Method, Payload, MsgId, Token, Options) ->
         options = Options
     }.
 
+make_empty_ack(#coap_message{id = MsgId}) ->
+    #coap_message{
+        type = ack,
+        id = MsgId
+    }.
+
 make_ack(#coap_message{id = MsgId, token = Token}, Code, Payload, Options) ->
     #coap_message{
         type = ack, id = MsgId,
@@ -65,6 +73,10 @@ uri_path(_) -> [].
 token(#coap_message{token = Token}) ->
     Token;
 token(_) -> undefined.
+
+type(#coap_message{type = Type}) ->
+    Type;
+type(_) -> undefined.
 
 incr_counter_sent(#coap_message{type = con}) ->
     coap_bench_metrics:incr('CON_SENT');

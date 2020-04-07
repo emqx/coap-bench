@@ -13,16 +13,19 @@
         ]).
 
 -counters(
-    [ 'REGISTER_SUCC'
+    [ 'REGISTER'
+    , 'REGISTER_SUCC'
     , 'REGISTER_FAIL'
-    , 'REGISTER'
-    , 'NOTIFY'
+    , 'REGISTER_TIMEOUT'
+    , 'DEREGISTER'
     , 'DEREGISTER_SUCC'
     , 'DEREGISTER_FAIL'
-    , 'DEREGISTER'
+    , 'DEREGISTER_TIMEOUT'
     , 'WAIT_OBSERVE'
     , 'WAIT_OBSERVE_SUCC'
     , 'WAIT_OBSERVE_FAIL'
+    , 'WAIT_OBSERVE_TIMEOUT'
+    , 'NOTIFY'
     , 'CON_SENT'
     , 'CON_SEND_FAIL'
     , 'CON_RCVD'

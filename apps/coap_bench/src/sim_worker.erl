@@ -6,11 +6,10 @@
 
 -export([init/1, callback_mode/0, terminate/3]).
 
--export([response_received/2]).
+-export([send_msg/4]).
 
 -export([working/3, sleep/3, wait_coap_msg/3]).
 
--define(ACK_TIMEOUT, 15000).
 -define(MAX_MESSAGE_ID, 65535). % 16-bit number
 
 -define(handle_events(EventType, EventContent, Data),
@@ -18,6 +17,7 @@
 
 -record(data, {
             sock,
+            sockname,
             conf = #{},
             nextmid,
             location = [],
@@ -30,13 +30,22 @@
 start_link(WorkFlow, Vars, Conf) ->
     gen_statem:start_link(?MODULE, [WorkFlow, Vars, Conf], []).
 
-response_received(Pid, Task) ->
-    gen_statem:cast(Pid, Task).
+send_msg(Sock, Host, Port, CoapMsg) ->
+    case gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(CoapMsg)) of
+        {error, Reason} ->
+            coap_bench_message:incr_counter_send_fail(CoapMsg),
+            {error, Reason};
+        ok ->
+            coap_bench_message:incr_counter_sent(CoapMsg),
+            ok
+    end.
 
 init([WorkFlow, Vars, Conf = #{binds := Binds}]) ->
     {ok, Sock} = gen_udp:open(0, [{ip, pick(Binds)}, binary, {active, true}, {reuseaddr, true}]),
+    {ok, SockName} = inet:sockname(Sock),
     {ok, working, #data{
             sock = Sock,
+            sockname = SockName,
             conf = Conf,
             nextmid = first_mid(),
             workflow = trans_workflow(WorkFlow, Vars),
@@ -69,10 +78,11 @@ wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
             end
     catch
         _:_ ->
-            logger:error("received udp message that not expected: ~p", [Packet]),
+            logger:error("received unknown udp message that not expected: ~p", [Packet]),
             keep_state_and_data
     end;
-wait_coap_msg(state_timeout, wait_msg_timeout, _Data) ->
+wait_coap_msg(state_timeout, wait_msg_timeout, #data{verify_msg = Validitor} = Data) ->
+    Validitor(timeout, Data),
     {stop, {shutdown, wait_msg_timeout}};
 wait_coap_msg(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
@@ -89,7 +99,7 @@ sleep(EventType, Event, Data) ->
 process_task(#data{workflow = []} = Data) ->
     {stop, {shutdown, workflow_complete}, Data#data{current_task = undefined}};
 
-process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks}} = Task | WorkFlow],
+process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks, timeout := Timeout}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
@@ -105,12 +115,14 @@ process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, obje
                 {true, LocationPath} ->
                     coap_bench_metrics:incr('REGISTER_SUCC'),
                     {ok, StateData0#data{location = LocationPath}}
-            end
+            end;
+           (timeout, _StateData0) ->
+               coap_bench_metrics:incr('REGISTER_TIMEOUT')
         end,
     coap_bench_metrics:incr('REGISTER'),
-    send_request(Sock, Host, Port, coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks), Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
+    send_request(Sock, Host, Port, coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
 
-process_task(#data{workflow = [{deregister, #{}} = Task | WorkFlow],
+process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    location = Location,
@@ -124,10 +136,12 @@ process_task(#data{workflow = [{deregister, #{}} = Task | WorkFlow],
                 false ->
                     coap_bench_metrics:incr('DEREGISTER_FAIL'),
                     {error, {ack_not_matched, MsgId, RcvdMsg}}
-            end
+            end;
+           (timeout, _StateData0) ->
+               coap_bench_metrics:incr('DEREGISTER_TIMEOUT')
         end,
     coap_bench_metrics:incr('DEREGISTER'),
-    send_request(Sock, Host, Port, coap_bench_message:make_deregister(Location, MsgId), Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
+    send_request(Sock, Host, Port, coap_bench_message:make_deregister(Location, MsgId), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
 
 process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
@@ -145,7 +159,9 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, co
                 {Path0, Token0} ->
                     coap_bench_metrics:incr('WAIT_OBSERVE_FAIL'),
                     {error, {observe_path_not_matched, Path0, Token0}}
-            end
+            end;
+           (timeout, _StateData0) ->
+               coap_bench_metrics:incr('WAIT_OBSERVE_TIMEOUT')
         end,
     coap_bench_metrics:incr('WAIT_OBSERVE'),
     {next_state, wait_coap_msg, Data#data{current_task = Task, workflow = WorkFlow, verify_msg = Validitor, nextmid = next_mid(MsgId)},
@@ -182,18 +198,18 @@ common_events_state(sleep) ->
 common_events_state(_StateName) ->
     keep_state_and_data.
 
-terminate(Reason, _State, #data{workflow = [], sock = Sock}) ->
-    gen_udp:close(Sock),
-    logger:debug("[~p] terminate: ~p", [?MODULE, Reason]);
-terminate(Reason, _State, #data{workflow = Tasks, current_task = Task, sock = Sock}) ->
-    gen_udp:close(Sock),
-    logger:error("[~p] terminate when running task: ~p, pending tasks in the queue: ~p, reason: ~p", [?MODULE, Task, Tasks, Reason]).
+terminate(Reason, _State, #data{workflow = [], sock = Sock, sockname = SockName}) ->
+    logger:debug("[~p] terminate: ~p, sockname: ~p", [?MODULE, Reason, SockName]),
+    sim_trash:take_socket(Sock);
+terminate(Reason, _State, #data{workflow = Tasks, current_task = Task, sock = Sock, sockname = SockName}) ->
+    logger:error("[~p] terminate when running task: ~p, pending tasks in the queue: ~p, reason: ~p, sockname: ~p", [?MODULE, Task, Tasks, Reason, SockName]),
+    sim_trash:take_socket(Sock).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-send_request(Sock, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId, Validitor) ->
+send_request(Sock, Host, Port, CoapMsg, Timeout, StateData, RemWorkFlow, MsgId, Validitor) ->
     case send_msg(Sock, Host, Port, CoapMsg) of
         ok ->
             {next_state, wait_coap_msg,
@@ -202,31 +218,20 @@ send_request(Sock, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId, Validitor
                     nextmid = next_mid(MsgId),
                     verify_msg = Validitor
                 },
-                [{state_timeout, ?ACK_TIMEOUT, wait_msg_timeout}]};
+                [{state_timeout, timer:seconds(Timeout), wait_msg_timeout}]};
         {error, Reason} ->
             logger:error("send request failed: ~p", [Reason]),
             {stop, {shutdown, Reason}}
     end.
 send_response(Sock, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId) ->
     case send_msg(Sock, Host, Port, CoapMsg) of
-        ok ->
-             continue_working(StateData#data{
+        ok -> continue_working(StateData#data{
                  nextmid = next_mid(MsgId),
                  verify_msg = undefined,
                  workflow = RemWorkFlow});
         {error, Reason} ->
             logger:error("send request failed: ~p", [Reason]),
             {stop, {shutdown, Reason}}
-    end.
-
-send_msg(Sock, Host, Port, CoapMsg) ->
-    case gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(CoapMsg)) of
-        {error, Reason} ->
-            coap_bench_message:incr_counter_send_fail(CoapMsg),
-            {error, Reason};
-        ok ->
-            coap_bench_message:incr_counter_sent(CoapMsg),
-            ok
     end.
 
 continue_working(StateData) ->
