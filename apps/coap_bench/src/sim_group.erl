@@ -30,9 +30,11 @@ init([]) ->
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
-start_sims(GrpName, WorkFlow, ClientInfos, Conf = #{conn_interval := ConnInterval}) ->
+start_sims(GrpName, WorkFlow, ClientInfos, Conf = #{binds := Binds, conn_interval := ConnInterval}) ->
     [begin
-        {ok, _} = supervisor:start_child(GrpName, [WorkFlow, Vars, Conf]),
+        {ok, Sock} = gen_udp:open(0, [{ip, pick(Binds)}, binary, {active, false}, {reuseaddr, true}]),
+        {ok, SimPid} = supervisor:start_child(GrpName, [WorkFlow, Vars, Sock, Conf]),
+        gen_udp:controlling_process(Sock, SimPid),
         timer:sleep(ConnInterval)
      end|| Vars <- ClientInfos],
     ok.
@@ -42,3 +44,6 @@ status(GrpName, count) ->
     proplists:get_value(active, Status, 0).
 
 %% internal functions
+
+pick(List) ->
+    lists:nth(rand:uniform(length(List)), List).

@@ -2,7 +2,7 @@
 
 -behaviour(gen_statem).
 
--export([start_link/3]).
+-export([start_link/4]).
 
 -export([init/1, callback_mode/0, terminate/3]).
 
@@ -27,8 +27,8 @@
             verify_msg :: fun((term()) -> {ok, #data{}} | {error, term()})
         }).
 
-start_link(WorkFlow, Vars, Conf) ->
-    gen_statem:start_link(?MODULE, [WorkFlow, Vars, Conf], []).
+start_link(WorkFlow, Vars, Sock, Conf) ->
+    gen_statem:start_link(?MODULE, [WorkFlow, Vars, Sock, Conf], []).
 
 send_msg(Sock, Host, Port, CoapMsg) ->
     case gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(CoapMsg)) of
@@ -40,9 +40,9 @@ send_msg(Sock, Host, Port, CoapMsg) ->
             ok
     end.
 
-init([WorkFlow, Vars, Conf = #{binds := Binds}]) ->
-    {ok, Sock} = gen_udp:open(0, [{ip, pick(Binds)}, binary, {active, true}, {reuseaddr, true}]),
+init([WorkFlow, Vars, Sock, Conf]) ->
     {ok, SockName} = inet:sockname(Sock),
+    inet:setopts(Sock, [{active, true}]),
     {ok, working, #data{
             sock = Sock,
             sockname = SockName,
@@ -256,9 +256,6 @@ next_mid(MsgId) ->
     if  MsgId < ?MAX_MESSAGE_ID -> MsgId + 1;
         true -> 1 % or 0?
     end.
-
-pick(List) ->
-    lists:nth(rand:uniform(length(List)), List).
 
 bin(Tk) when is_binary(Tk) -> Tk;
 bin(Tk) when is_list(Tk) -> list_to_binary(Tk).
