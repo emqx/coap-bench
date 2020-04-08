@@ -63,7 +63,7 @@ working(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
 wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
-             #data{verify_msg = Validitor, sock = Sock, sockname = SockName} = Data) when is_function(Validitor) ->
+             #data{verify_msg = Validitor, sock = Sock, current_task = Task, sockname = SockName} = Data) when is_function(Validitor) ->
     try
         lwm2m_coap_message_parser:decode(Packet)
     of
@@ -73,12 +73,12 @@ wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
                 {ok, StateData} ->
                     continue_working(StateData#data{verify_msg = undefined});
                 {error, Reason} ->
-                    logger:error("received coap message that not expected: ~p, reason: ~p, sockname: ~p", [CoapMsg, Reason, SockName]),
+                    logger:error("received coap message that not expected: ~p, reason: ~p, current_task: ~p, sockname: ~p", [CoapMsg, Reason, Task, SockName]),
                     keep_state_and_data
             end
     catch
         _:_ ->
-            logger:error("received unknown udp message that not expected: ~p, sockname: ~p", [Packet, SockName]),
+            logger:error("received unknown udp message that not expected: ~p, current_task: ~p, sockname: ~p", [Packet, Task, SockName]),
             keep_state_and_data
     end;
 wait_coap_msg(state_timeout, wait_msg_timeout, #data{verify_msg = Validitor} = Data) ->
@@ -190,7 +190,7 @@ process_task(#data{workflow = [{sleep, #{interval := Sec}} = Task | WorkFlow]} =
 
 process_task(#data{workflow = [Task | WorkFlow], sockname = SockName} = Data) ->
     logger:error("unknow workflow: ~p, sockname: ~p", [Task, SockName]),
-    {keep_state, Data#data{current_task = Task, workflow = WorkFlow}, []}.
+    continue_working(Data#data{current_task = Task, workflow = WorkFlow}).
 
 handle_common_events(StateName, EventType, Event, _Data) ->
     logger:warning("received unexpected event: ~p in state: ~p", [{EventType, Event}, StateName]),
