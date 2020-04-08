@@ -32,7 +32,7 @@ init([]) ->
 
 start_sims(GrpName, WorkFlow, ClientInfos, Conf = #{binds := Binds, conn_interval := ConnInterval}) ->
     [begin
-        {ok, Sock} = gen_udp:open(0, [{ip, pick(Binds)}, binary, {active, false}, {reuseaddr, true}]),
+        {ok, Sock} = gen_udp:open(0, [{ip, pick(Binds)}, binary, {active, false}, {reuseaddr, false}]),
         {ok, SimPid} = supervisor:start_child(GrpName, [WorkFlow, Vars, Sock, Conf]),
         gen_udp:controlling_process(Sock, SimPid),
         timer:sleep(ConnInterval)
