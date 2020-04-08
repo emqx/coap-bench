@@ -73,12 +73,12 @@ wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
                 {ok, StateData} ->
                     continue_working(StateData#data{verify_msg = undefined});
                 {error, Reason} ->
-                    logger:error("received coap message that not expected: ~p, reason: ~p, current_task: ~p, sockname: ~p", [CoapMsg, Reason, Task, SockName]),
+                    logger:error("received coap message that not expected: ~p, reason: ~p, statedata: ~p", [CoapMsg, Reason, printable_data(Data)]),
                     keep_state_and_data
             end
     catch
         _:_ ->
-            logger:error("received unknown udp message that not expected: ~p, current_task: ~p, sockname: ~p", [Packet, Task, SockName]),
+            logger:error("received unknown udp message that not expected: ~p, statedata: ~p", [Packet, printable_data(Data)]),
             keep_state_and_data
     end;
 wait_coap_msg(state_timeout, wait_msg_timeout, #data{verify_msg = Validitor} = Data) ->
@@ -102,7 +102,6 @@ process_task(#data{workflow = []} = Data) ->
 process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks, timeout := Timeout}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
-                   sockname = SockName,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor = fun
         (timeout, _StateData0) ->
@@ -121,13 +120,16 @@ process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, obje
             end
         end,
     coap_bench_metrics:incr('REGISTER'),
-    send_request(Sock, SockName, Host, Port, coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
+    Register = coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks),
+    send_request(Sock, Host, Port,
+        Register, Timeout,
+        Data#data{current_task = Task, workflow = WorkFlow},
+        MsgId, Validitor);
 
 process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    location = Location,
-                   sockname = SockName,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor = fun
         (timeout, _StateData0) ->
@@ -143,11 +145,13 @@ process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | Work
             end
         end,
     coap_bench_metrics:incr('DEREGISTER'),
-    send_request(Sock, SockName, Host, Port, coap_bench_message:make_deregister(Location, MsgId), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
+    Deregister = coap_bench_message:make_deregister(Location, MsgId),
+    send_request(Sock, Host, Port, Deregister, Timeout,
+        Data#data{current_task = Task, workflow = WorkFlow},
+        MsgId, Validitor);
 
 process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
-                   nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor = fun
         (timeout, _StateData0) ->
@@ -166,20 +170,20 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, co
             end
         end,
     coap_bench_metrics:incr('WAIT_OBSERVE'),
-    {next_state, wait_coap_msg, Data#data{current_task = Task, workflow = WorkFlow, verify_msg = Validitor, nextmid = next_mid(MsgId)},
+    {next_state, wait_coap_msg, Data#data{current_task = Task, workflow = WorkFlow, verify_msg = Validitor},
         [{state_timeout, timer:seconds(Sec), wait_msg_timeout}]};
 
 process_task(#data{workflow = [{notify, #{path := Path, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    observed = Observed,
-                   sockname = SockName,
                    conf = #{host := Host, port := Port}} = Data) ->
     case maps:find(Path, Observed) of
         {ok, Token} ->
             coap_bench_metrics:incr('NOTIFY'),
             Notify = coap_bench_message:make_notify(non, Token, MsgId, make_body(BodyOpts), MsgId, ContentFormat),
-            send_response(Sock, SockName, Host, Port, Notify, Data#data{current_task = Task}, WorkFlow, MsgId);
+            send_response(Sock, Host, Port, Notify,
+                Data#data{current_task = Task, workflow = WorkFlow}, MsgId);
         error ->
             {stop, {shutdown, {not_observed, Path}}, Data#data{current_task = Task}}
     end;
@@ -188,12 +192,12 @@ process_task(#data{workflow = [{sleep, #{interval := Sec}} = Task | WorkFlow]} =
     {next_state, sleep, Data#data{workflow = WorkFlow, current_task = Task},
         [{state_timeout, timer:seconds(Sec), wakeup}, hibernate]};
 
-process_task(#data{workflow = [Task | WorkFlow], sockname = SockName} = Data) ->
-    logger:error("unknow workflow: ~p, sockname: ~p", [Task, SockName]),
+process_task(#data{workflow = [Task | WorkFlow]} = Data) ->
+    logger:error("unknow workflow: ~p, statedata: ~p", [Task, printable_data(Data)]),
     continue_working(Data#data{current_task = Task, workflow = WorkFlow}).
 
-handle_common_events(StateName, EventType, Event, _Data) ->
-    logger:warning("received unexpected event: ~p in state: ~p", [{EventType, Event}, StateName]),
+handle_common_events(StateName, EventType, Event, Data) ->
+    logger:warning("received unexpected event: ~p in state: ~p, statedata: ~p", [{EventType, Event}, StateName, printable_data(Data)]),
     common_events_state(StateName).
 
 common_events_state(sleep) ->
@@ -201,39 +205,37 @@ common_events_state(sleep) ->
 common_events_state(_StateName) ->
     keep_state_and_data.
 
-terminate(Reason, _State, #data{workflow = [], sock = Sock, sockname = SockName}) ->
-    logger:debug("[~p] terminate: ~p, sockname: ~p", [?MODULE, Reason, SockName]),
+terminate(Reason, _State, #data{workflow = [], sock = Sock} = Data) ->
+    logger:debug("[~p] terminate: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),
     sim_trash:take_socket(Sock);
-terminate(Reason, _State, #data{workflow = Tasks, current_task = Task, sock = Sock, sockname = SockName}) ->
-    logger:error("[~p] terminate when running task: ~p, pending tasks in the queue: ~p, reason: ~p, sockname: ~p", [?MODULE, Task, Tasks, Reason, SockName]),
+terminate(Reason, _State, #data{sock = Sock} = Data) ->
+    logger:error("[~p] reason: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),
     sim_trash:take_socket(Sock).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-send_request(Sock, SockName, Host, Port, CoapMsg, Timeout, StateData, RemWorkFlow, MsgId, Validitor) ->
+send_request(Sock, Host, Port, CoapMsg, Timeout, StateData, MsgId, Validitor) ->
     case send_msg(Sock, Host, Port, CoapMsg) of
         ok ->
             {next_state, wait_coap_msg,
                 StateData#data{
-                    workflow = RemWorkFlow,
                     nextmid = next_mid(MsgId),
                     verify_msg = Validitor
                 },
                 [{state_timeout, timer:seconds(Timeout), wait_msg_timeout}]};
         {error, Reason} ->
-            logger:error("send request failed: ~p, sockname: ~p", [Reason, SockName]),
+            logger:error("send request failed: ~p, statedata: ~p", [Reason, printable_data(StateData)]),
             {stop, {shutdown, Reason}}
     end.
-send_response(Sock, SockName, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId) ->
+send_response(Sock, Host, Port, CoapMsg, StateData, MsgId) ->
     case send_msg(Sock, Host, Port, CoapMsg) of
         ok -> continue_working(StateData#data{
                  nextmid = next_mid(MsgId),
-                 verify_msg = undefined,
-                 workflow = RemWorkFlow});
+                 verify_msg = undefined});
         {error, Reason} ->
-            logger:error("send request failed: ~p, sockname: ~p", [Reason, SockName]),
+            logger:error("send request failed: ~p, statedata: ~p", [Reason, printable_data(StateData)]),
             {stop, {shutdown, Reason}}
     end.
 
@@ -262,3 +264,16 @@ next_mid(MsgId) ->
 
 bin(Tk) when is_binary(Tk) -> Tk;
 bin(Tk) when is_list(Tk) -> list_to_binary(Tk).
+
+printable_data(#data{
+            sockname = SockName,
+            nextmid = NextMsgId,
+            location = Location,
+            observed = Observed,
+            workflow = RemainWorkFlow,
+            current_task = CurrentTask
+        }) ->
+    #{sockname => SockName, nextmid => NextMsgId,
+      location => Location, observed => Observed,
+      current_task => CurrentTask,
+      pending_workflow => RemainWorkFlow}.
