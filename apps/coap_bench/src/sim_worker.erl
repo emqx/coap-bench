@@ -63,7 +63,7 @@ working(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
 wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
-             #data{verify_msg = Validitor, sock = Sock} = Data) when is_function(Validitor) ->
+             #data{verify_msg = Validitor, sock = Sock, sockname = SockName} = Data) when is_function(Validitor) ->
     try
         lwm2m_coap_message_parser:decode(Packet)
     of
@@ -73,12 +73,12 @@ wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
                 {ok, StateData} ->
                     continue_working(StateData#data{verify_msg = undefined});
                 {error, Reason} ->
-                    logger:error("received coap message that not expected: ~p, reason: ~p", [CoapMsg, Reason]),
+                    logger:error("received coap message that not expected: ~p, reason: ~p, sockname: ~p", [CoapMsg, Reason, SockName]),
                     keep_state_and_data
             end
     catch
         _:_ ->
-            logger:error("received unknown udp message that not expected: ~p", [Packet]),
+            logger:error("received unknown udp message that not expected: ~p, sockname: ~p", [Packet, SockName]),
             keep_state_and_data
     end;
 wait_coap_msg(state_timeout, wait_msg_timeout, #data{verify_msg = Validitor} = Data) ->
@@ -102,6 +102,7 @@ process_task(#data{workflow = []} = Data) ->
 process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks, timeout := Timeout}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
+                   sockname = SockName,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor = fun
         (timeout, _StateData0) ->
@@ -120,12 +121,13 @@ process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, obje
             end
         end,
     coap_bench_metrics:incr('REGISTER'),
-    send_request(Sock, Host, Port, coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
+    send_request(Sock, SockName, Host, Port, coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
 
 process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    location = Location,
+                   sockname = SockName,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor = fun
         (timeout, _StateData0) ->
@@ -141,7 +143,7 @@ process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | Work
             end
         end,
     coap_bench_metrics:incr('DEREGISTER'),
-    send_request(Sock, Host, Port, coap_bench_message:make_deregister(Location, MsgId), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
+    send_request(Sock, SockName, Host, Port, coap_bench_message:make_deregister(Location, MsgId), Timeout, Data#data{current_task = Task}, WorkFlow, MsgId, Validitor);
 
 process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
@@ -171,12 +173,13 @@ process_task(#data{workflow = [{notify, #{path := Path, content_format := Conten
                    sock = Sock,
                    nextmid = MsgId,
                    observed = Observed,
+                   sockname = SockName,
                    conf = #{host := Host, port := Port}} = Data) ->
     case maps:find(Path, Observed) of
         {ok, Token} ->
             coap_bench_metrics:incr('NOTIFY'),
             Notify = coap_bench_message:make_notify(non, Token, MsgId, make_body(BodyOpts), MsgId, ContentFormat),
-            send_response(Sock, Host, Port, Notify, Data#data{current_task = Task}, WorkFlow, MsgId);
+            send_response(Sock, SockName, Host, Port, Notify, Data#data{current_task = Task}, WorkFlow, MsgId);
         error ->
             {stop, {shutdown, {not_observed, Path}}, Data#data{current_task = Task}}
     end;
@@ -185,8 +188,8 @@ process_task(#data{workflow = [{sleep, #{interval := Sec}} = Task | WorkFlow]} =
     {next_state, sleep, Data#data{workflow = WorkFlow, current_task = Task},
         [{state_timeout, timer:seconds(Sec), wakeup}, hibernate]};
 
-process_task(#data{workflow = [Task | WorkFlow]} = Data) ->
-    logger:error("unknow workflow: ~p", [Task]),
+process_task(#data{workflow = [Task | WorkFlow], sockname = SockName} = Data) ->
+    logger:error("unknow workflow: ~p, sockname: ~p", [Task, SockName]),
     {keep_state, Data#data{current_task = Task, workflow = WorkFlow}, []}.
 
 handle_common_events(StateName, EventType, Event, _Data) ->
@@ -209,7 +212,7 @@ terminate(Reason, _State, #data{workflow = Tasks, current_task = Task, sock = So
 %%% Internal functions
 %%%===================================================================
 
-send_request(Sock, Host, Port, CoapMsg, Timeout, StateData, RemWorkFlow, MsgId, Validitor) ->
+send_request(Sock, SockName, Host, Port, CoapMsg, Timeout, StateData, RemWorkFlow, MsgId, Validitor) ->
     case send_msg(Sock, Host, Port, CoapMsg) of
         ok ->
             {next_state, wait_coap_msg,
@@ -220,17 +223,17 @@ send_request(Sock, Host, Port, CoapMsg, Timeout, StateData, RemWorkFlow, MsgId, 
                 },
                 [{state_timeout, timer:seconds(Timeout), wait_msg_timeout}]};
         {error, Reason} ->
-            logger:error("send request failed: ~p", [Reason]),
+            logger:error("send request failed: ~p, sockname: ~p", [Reason, SockName]),
             {stop, {shutdown, Reason}}
     end.
-send_response(Sock, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId) ->
+send_response(Sock, SockName, Host, Port, CoapMsg, StateData, RemWorkFlow, MsgId) ->
     case send_msg(Sock, Host, Port, CoapMsg) of
         ok -> continue_working(StateData#data{
                  nextmid = next_mid(MsgId),
                  verify_msg = undefined,
                  workflow = RemWorkFlow});
         {error, Reason} ->
-            logger:error("send request failed: ~p", [Reason]),
+            logger:error("send request failed: ~p, sockname: ~p", [Reason, SockName]),
             {stop, {shutdown, Reason}}
     end.
 
