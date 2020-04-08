@@ -209,7 +209,7 @@ terminate(Reason, _State, #data{workflow = [], sock = Sock} = Data) ->
     logger:debug("[~p] terminate: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),
     sim_trash:take_socket(Sock);
 terminate(Reason, _State, #data{sock = Sock} = Data) ->
-    logger:error("[~p] reason: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),
+    logger:error("[~p] terminate with pending tasks, reason: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),
     sim_trash:take_socket(Sock).
 
 %%%===================================================================

@@ -138,7 +138,7 @@ handle_args(load, {_, _}) ->
 
 print_status(GrpCount) ->
     io:format("~60..=s~n", [""]),
-    io:format("~-48s~s~n", ["RunningTaskGroup", "RunningSims"]),
+    io:format("~-48s~s~n", ["RunningTaskGroups", "RunningSims"]),
     io:format("~60..-s~n", [""]),
     SimCountTotal =
         lists:foldl(fun({GrpName, SimCount}, CountAcc) ->
