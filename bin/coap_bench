@@ -550,7 +550,12 @@ case "$1" in
         ;;
 
     run|status|load|clear)
-        $0 rpc coap_bench_cli command "$@";;
+        #$0 rpc coap_bench_cli command "$@";;
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
+            exit 1
+        fi
+        relx_nodetool rpc coap_bench_cli command "$@";;
     stop)
         relx_run_hooks "$PRE_STOP_HOOKS"
         # Wait for the node to completely stop...
