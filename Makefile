@@ -18,7 +18,8 @@ rel:
 xref:
 	$(REBAR) xref
 
-clean: distclean
+clean:
+	$(REBAR) clean
 
 distclean:
 	@rm -rf _build

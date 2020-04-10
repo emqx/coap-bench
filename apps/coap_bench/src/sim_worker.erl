@@ -63,7 +63,7 @@ working(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
 wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
-             #data{verify_msg = Validitor, sock = Sock, current_task = Task, sockname = SockName} = Data) when is_function(Validitor) ->
+             #data{verify_msg = Validitor, sock = Sock} = Data) when is_function(Validitor) ->
     try
         lwm2m_coap_message_parser:decode(Packet)
     of
@@ -243,7 +243,7 @@ continue_working(StateData) ->
     {next_state, working, StateData, [{next_event, internal, continue_workflow}]}.
 
 trans_workflow(WorkFlow, Vars0) when is_list(WorkFlow) ->
-    Vars = [bin(Tk) || Tk <- string:split(string:tokens(Vars0, "\n"), ",", all)],
+    Vars = [bin(Tk) || Tk <- string:split(string:tokens(str(Vars0), "\n"), ",", all)],
     [do_trans_workflow(Flow, Vars) || Flow <- WorkFlow].
 
 do_trans_workflow({FlowName, Opts}, Vars) when is_map(Opts) ->
@@ -264,6 +264,9 @@ next_mid(MsgId) ->
 
 bin(Tk) when is_binary(Tk) -> Tk;
 bin(Tk) when is_list(Tk) -> list_to_binary(Tk).
+
+str(Str) when is_list(Str) -> Str;
+str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
 printable_data(#data{
             sockname = SockName,
