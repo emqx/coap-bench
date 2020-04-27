@@ -43,8 +43,15 @@ start_sim_groups(Conf) ->
     fun() ->
         GroupName = group_name(GrpName),
         try
-            {ok, _} = supervisor:start_child(?MODULE, [GroupName]),
-            sim_group:start_sims(GroupName, parse_workflow(WorkFlow), GroupClientInfos, Conf)
+            case supervisor:start_child(?MODULE, [GroupName]) of
+                {error,{already_started, _}} ->
+                    error({test_group_already_started, GroupName});
+                {ok, _} -> ok
+            end,
+            sim_group:start_sims(GroupName,
+                parse_workflow(WorkFlow),
+                on_unexpected_msg(OnUnexpectedMsg),
+                GroupClientInfos, Conf)
         of
             ok -> logger:info("TaskGroup: ~p started", [GroupName])
         catch
@@ -55,8 +62,10 @@ start_sim_groups(Conf) ->
         end
     end)
     || #{group_name := GrpName,
-        work_flow := WorkFlow,
-        client_infos := GroupClientInfos} <- coap_bench_profiles:get_client_info()],
+         work_flow := WorkFlow,
+         on_unexpected_msg := OnUnexpectedMsg,
+         client_infos := GroupClientInfos
+        } <- coap_bench_profiles:get_client_info()],
     ok.
 
 stop_sim_groups() ->
@@ -141,3 +150,8 @@ interval(Interval) when is_binary(Interval) ->
         {match,[Num,"d"]} ->
             timer:seconds(list_to_integer(Num)) * 60 * 60 * 24
     end.
+
+on_unexpected_msg(<<"stop">>) -> #{action => stop};
+on_unexpected_msg(<<"do_nothing">>) -> #{action => do_nothing};
+on_unexpected_msg(<<"empty_ack">>) -> #{action => empty_ack};
+on_unexpected_msg(#{<<"ack">> := Code}) -> #{action => ack, code => coap_bench_message:coap_code(Code)}.

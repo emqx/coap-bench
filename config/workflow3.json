@@ -1,0 +1,46 @@
+[
+    {
+        "group_name":"on_coap_msg_1",
+        "weight": 1,
+        "work_flow":[
+            {
+                "task":"register",
+                "ep": "$1",
+                "lifetime":120,
+                "timeout":60,
+                "object_links": "</>;rt=\"oma.lwm2m\",</19/0>"
+            },
+            {
+                "task":"sleep",
+                "interval": "30s"
+            },
+            {
+                "task":"deregister",
+                "timeout":60
+            }
+        ],
+        "on_unexpected_msg" : "empty_ack"
+    },
+    {
+        "group_name":"on_coap_msg_2",
+        "weight": 1,
+        "work_flow":[
+            {
+                "task":"register",
+                "ep": "$1",
+                "lifetime":120,
+                "timeout":60,
+                "object_links": "</>;rt=\"oma.lwm2m\",</19/0>"
+            },
+            {
+                "task":"sleep",
+                "interval": "30s"
+            },
+            {
+                "task":"deregister",
+                "timeout":60
+            }
+        ],
+        "on_unexpected_msg" : {"ack": "bad_request"}
+    }
+]

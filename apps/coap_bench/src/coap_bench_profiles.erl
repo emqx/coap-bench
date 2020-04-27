@@ -51,15 +51,17 @@ tasks_with_grouped_client_infos(Tasks, ClientInfos) ->
     TotalWeight = total_weight(Tasks),
     TotalNum = length(ClientInfos),
     {NewTasks, _, _} = lists:foldl(fun
-        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow}, {TasksAcc, RemClientInfos0, RemNum0})
+        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow} = Flow, {TasksAcc, RemClientInfos0, RemNum0})
                 when RemClientInfos0 =:= []; RemNum0 =:= 1 ->
             {[#{group_name => GrpName,
                 work_flow => WorkFlow,
+                on_unexpected_msg => maps:get(<<"on_unexpected_msg">>, Flow, <<"do_nothing">>),
                 client_infos => RemClientInfos0} | TasksAcc], [], 0};
-        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow, <<"weight">> := Weight}, {TasksAcc, RemClientInfos0, RemNum0}) ->
+        (#{<<"group_name">> := GrpName, <<"work_flow">> := WorkFlow, <<"weight">> := Weight}  = Flow , {TasksAcc, RemClientInfos0, RemNum0}) ->
             {GroupClientInfos, RemClientInfos} = lists_split(number_by_weight(Weight, TotalWeight, TotalNum), RemClientInfos0),
             {[#{group_name => GrpName,
                 work_flow => WorkFlow,
+                on_unexpected_msg => maps:get(<<"on_unexpected_msg">>, Flow, <<"do_nothing">>),
                 client_infos => GroupClientInfos} | TasksAcc],
              RemClientInfos, RemNum0-1}
         end, {[], ClientInfos, TotalNum}, Tasks),

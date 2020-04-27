@@ -2,11 +2,11 @@
 
 -behaviour(gen_statem).
 
--export([start_link/4, resume/1]).
+-export([start_link/5, resume/1]).
 
 -export([init/1, callback_mode/0, terminate/3]).
 
--export([send_msg/4]).
+-export([send_msg/4, may_ack_it/4]).
 
 -export([ working/3
         , sleep/3
@@ -27,12 +27,13 @@
             location = [],
             observed = #{},
             workflow :: [],
+            on_unexpected_msg :: #{},
             current_task,
             verify_msg :: fun((term()) -> {ok, #data{}} | {error, term()})
         }).
 
-start_link(WorkFlow, Vars, Sock, Conf) ->
-    gen_statem:start_link(?MODULE, [WorkFlow, Vars, Sock, Conf], []).
+start_link(WorkFlow, OnCoapMsgRcvd, Vars, Sock, Conf) ->
+    gen_statem:start_link(?MODULE, [WorkFlow, OnCoapMsgRcvd, Vars, Sock, Conf], []).
 
 resume(SimWorker) ->
     gen_statem:cast(SimWorker, resume).
@@ -47,7 +48,14 @@ send_msg(Sock, Host, Port, CoapMsg) ->
             ok
     end.
 
-init([WorkFlow, Vars, Sock, Conf]) ->
+may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg) ->
+    case coap_bench_message:type(CoapMsg) of
+        con -> sim_worker:send_msg(Sock, PeerIP, PeerPortNo,
+                    coap_bench_message:make_empty_ack(CoapMsg));
+        _ -> ok
+    end.
+
+init([WorkFlow, OnUnexpectedMsg, Vars, Sock, Conf]) ->
     {ok, SockName} = inet:sockname(Sock),
     inet:setopts(Sock, [{active, true}]),
     {ok, working, #data{
@@ -56,6 +64,7 @@ init([WorkFlow, Vars, Sock, Conf]) ->
             conf = Conf,
             nextmid = first_mid(),
             workflow = trans_workflow(WorkFlow, Vars),
+            on_unexpected_msg = OnUnexpectedMsg,
             current_task = undefined,
             verify_msg = undefined
         }, [{next_event, internal, continue_workflow}]}.
@@ -69,8 +78,9 @@ working(internal, continue_workflow, Data) ->
 working(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
-wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
-             #data{verify_msg = Validitor, sock = Sock} = Data) when is_function(Validitor) ->
+wait_coap_msg(info, {udp, Sock, PeerIP, PeerPortNo, Packet},
+             #data{verify_msg = Validitor, sock = Sock,
+                   on_unexpected_msg = OnUnexpectedMsg} = Data) when is_function(Validitor) ->
     try
         lwm2m_coap_message_parser:decode(Packet)
     of
@@ -81,7 +91,7 @@ wait_coap_msg(info, {udp, Sock, _PeerIP, _PeerPortNo, Packet},
                     continue_working(StateData#data{verify_msg = undefined});
                 {error, Reason} ->
                     logger:error("received coap message that not expected: ~p, reason: ~p, statedata: ~p", [CoapMsg, Reason, printable_data(Data)]),
-                    keep_state_and_data
+                    handle_unexpected_coap_msg(Sock, PeerIP, PeerPortNo, CoapMsg, OnUnexpectedMsg)
             end
     catch
         _:_ ->
@@ -235,6 +245,18 @@ process_task(#data{workflow = [Task | WorkFlow]} = Data) ->
     logger:error("unknow workflow: ~p, statedata: ~p", [Task, printable_data(Data)]),
     continue_working(Data#data{current_task = Task, workflow = WorkFlow}).
 
+handle_common_events(StateName, info, {udp, Sock, PeerIP, PeerPortNo, Packet},
+             #data{on_unexpected_msg = OnUnexpectedMsg} = Data) ->
+    try
+        CoapMsg = lwm2m_coap_message_parser:decode(Packet),
+        coap_bench_message:incr_counter_rcvd(CoapMsg),
+        handle_unexpected_coap_msg(Sock, PeerIP, PeerPortNo, CoapMsg, OnUnexpectedMsg)
+    catch
+        _:_ ->
+            logger:error("received unknown udp message that not expected: ~p, statedata: ~p", [Packet, printable_data(Data)]),
+            common_events_state(StateName)
+    end;
+
 handle_common_events(StateName, EventType, Event, Data) ->
     logger:warning("received unexpected event: ~p in state: ~p, statedata: ~p", [{EventType, Event}, StateName, printable_data(Data)]),
     common_events_state(StateName).
@@ -246,6 +268,18 @@ common_events_state(StateName)
 common_events_state(_StateName) ->
     keep_state_and_data.
 
+handle_unexpected_coap_msg(_Sock, _PeerIP, _PeerPortNo, CoapMsg, #{action := stop}) ->
+    {stop, {shutdown, {unexpected_coap, CoapMsg}}};
+handle_unexpected_coap_msg(_Sock, _PeerIP, _PeerPortNo, _CoapMsg, #{action := do_nothing}) ->
+    keep_state_and_data;
+handle_unexpected_coap_msg(Sock, PeerIP, PeerPortNo, CoapMsg, #{action := empty_ack}) ->
+    may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg),
+    keep_state_and_data;
+handle_unexpected_coap_msg(Sock, PeerIP, PeerPortNo, CoapMsg, #{action := ack, code := Code}) ->
+    Ack = coap_bench_message:make_ack(CoapMsg, Code, <<>>,
+                            [{observe, 0}, {content_format, <<"application/octet-stream">>}]),
+    send_msg(Sock, PeerIP, PeerPortNo, Ack),
+    keep_state_and_data.
 
 terminate(Reason, _State, #data{workflow = [], sock = Sock} = Data) ->
     logger:debug("[~p] terminate: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),

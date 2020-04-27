@@ -8,7 +8,7 @@
 -behaviour(supervisor).
 
 -export([ start_link/1
-        , start_sims/4
+        , start_sims/5
         , resume_sims/1
         , status/2
         ]).
@@ -31,10 +31,10 @@ init([]) ->
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
-start_sims(GrpName, WorkFlow, ClientInfos, Conf = #{binds := Binds, conn_interval := ConnInterval}) ->
+start_sims(GrpName, WorkFlow, OnUnexpectedMsg, ClientInfos, Conf = #{binds := Binds, conn_interval := ConnInterval}) ->
     [begin
         {ok, Sock} = gen_udp:open(0, [{ip, pick(Binds)}, binary, {active, false}, {reuseaddr, false}]),
-        {ok, SimPid} = supervisor:start_child(GrpName, [WorkFlow, Vars, Sock, Conf]),
+        {ok, SimPid} = supervisor:start_child(GrpName, [WorkFlow, OnUnexpectedMsg, Vars, Sock, Conf]),
         gen_udp:controlling_process(Sock, SimPid),
         timer:sleep(ConnInterval)
      end|| Vars <- ClientInfos],

@@ -20,7 +20,7 @@ trash_loop(State) ->
                 CoapMsg ->
                     coap_bench_message:incr_counter_rcvd(CoapMsg),
                     logger:error("[sim_trash] received coap message: ~p, sockname: ~p", [CoapMsg, inet:sockname(Sock)]),
-                    may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg)
+                    sim_worker:may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg)
             catch
                 _:_ ->
                     logger:error("[sim_trash] received unknown udp message: ~p", [Packet])
@@ -33,10 +33,3 @@ trash_loop(State) ->
 
 take_socket(Sock) ->
     gen_udp:controlling_process(Sock, erlang:whereis(?MODULE)).
-
-may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg) ->
-    case coap_bench_message:type(CoapMsg) of
-        con -> sim_worker:send_msg(Sock, PeerIP, PeerPortNo,
-                    coap_bench_message:make_empty_ack(CoapMsg));
-        _ -> ok
-    end.

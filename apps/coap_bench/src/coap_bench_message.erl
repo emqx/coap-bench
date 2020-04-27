@@ -14,6 +14,7 @@
         , incr_counter_sent/1
         , incr_counter_send_fail/1
         , incr_counter_rcvd/1
+        , coap_code/1
         ]).
 
 -include_lib("lwm2m_coap/include/coap.hrl").
@@ -109,3 +110,25 @@ bin(Int) when is_integer(Int) ->
     integer_to_binary(Int);
 bin(Bin) when is_binary(Bin) ->
     Bin.
+
+coap_code(<<"created">>) -> {ok, created};
+coap_code(<<"deleted">>) -> {ok, deleted};
+coap_code(<<"valid">>) -> {ok, valid};
+coap_code(<<"changed">>) -> {ok, changed};
+coap_code(<<"content">>) -> {ok, content};
+coap_code(<<"continue">>) -> {ok, continue};
+coap_code(<<"bad_request">>) -> {error, bad_request};
+coap_code(<<"unauthorized">>) -> {error, uauthorized};
+coap_code(<<"forbidden">>) -> {error, forbidden};
+coap_code(<<"not_found">>) -> {error, not_found};
+coap_code(<<"method_not_allowed">>) -> {error, method_not_allowed};
+coap_code(<<"request_entity_incomplete">>) -> {error, request_entity_incomplete};
+coap_code(<<"precondition_failed">>) -> {error, precondition_failed};
+coap_code(<<"request_entity_too_large">>) -> {error, request_entity_too_large};
+coap_code(<<"unsupported_content_format">>) -> {error, unsupported_content_format};
+coap_code(<<"internal_server_error">>) -> {error, internal_server_error};
+coap_code(<<"not_implemented">>) -> {error, not_implemented};
+coap_code(<<"bad_gateway">>) -> {error, bad_gateway};
+coap_code(<<"service_unavailable">>) -> {error, service_unavailable};
+coap_code(<<"gateway_timeout">>) -> {error, gateway_timeout};
+coap_code(<<"proxying_not_supported">>) -> {error, proxying_not_supported}.
