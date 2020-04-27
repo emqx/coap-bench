@@ -38,6 +38,7 @@
     , 'RST_SENT'
     , 'RST_SEND_FAIL'
     , 'RST_RCVD'
+    , 'PAUSE'
     ]).
 
 %% Magic functions

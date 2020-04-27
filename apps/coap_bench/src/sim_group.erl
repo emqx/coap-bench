@@ -9,6 +9,7 @@
 
 -export([ start_link/1
         , start_sims/4
+        , resume_sims/1
         , status/2
         ]).
 
@@ -38,6 +39,10 @@ start_sims(GrpName, WorkFlow, ClientInfos, Conf = #{binds := Binds, conn_interva
         timer:sleep(ConnInterval)
      end|| Vars <- ClientInfos],
     ok.
+
+resume_sims(GroupPid) ->
+    [sim_worker:resume(SimPid)
+     || {_,SimPid,_,_} <- supervisor:which_children(GroupPid)].
 
 status(GrpName, count) ->
     Status = supervisor:count_children(GrpName),

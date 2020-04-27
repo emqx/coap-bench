@@ -31,6 +31,14 @@ init_cli() ->
         }]
     ),
 
+    ResumeParser = cli:parser(
+        "coap_bench resume",
+        "[OPTION]...",
+        "Resume all of the paused sims.\n"
+        "\n",
+        [], []
+    ),
+
     ClearParser = cli:parser(
         "coap_bench clear",
         "[OPTION]...",
@@ -61,6 +69,7 @@ init_cli() ->
     ),
 
     ets:insert(?TAB, {run, RunParser}),
+    ets:insert(?TAB, {resume, ResumeParser}),
     ets:insert(?TAB, {clear, ClearParser}),
     ets:insert(?TAB, {load, LoadParser}),
     ets:insert(?TAB, {status, StatusParser}),
@@ -126,6 +135,9 @@ handle_args(clear, {Opts, _}) ->
             sim_manager:stop_sim_groups(Name)
     end;
 
+handle_args(resume, {_Opts, _}) ->
+    sim_manager:resume_sim_groups();
+
 handle_args(load, {_, [ClientInfoFile, WorkflowFile]}) ->
     {ClientCount, GroupsCount} = coap_bench_profiles:load_profiles(ClientInfoFile, WorkflowFile),
     io:format("~nLoading profiles into memory...~n~n"
@@ -146,7 +158,7 @@ print_status(GrpCount) ->
             CountAcc + SimCount
         end, 0, sim_manager:status(list)),
     io:format("~n"),
-    io:format("TaskGroup Total: ~w, Sims Total: ~w~n", [GrpCount, SimCountTotal]),
+    io:format("TaskGroups Total: ~w, Sims Total: ~w~n", [GrpCount, SimCountTotal]),
     io:format("~60..=s~n", [""]).
 
 print_metrics() ->

@@ -1,0 +1,49 @@
+[
+    {
+        "group_name":"notify_loop",
+        "weight": 1,
+        "work_flow":[
+            {
+                "task":"register",
+                "ep": "$1",
+                "lifetime":120,
+                "timeout":60,
+                "object_links": "</>;rt=\"oma.lwm2m\",</19/0>"
+            },
+            {
+                "task":"wait_observe",
+                "path":"19/0/0",
+                "body": "$payload_19_0_0",
+                "content_format": "application/octet-stream",
+                "timeout":60
+            },
+            {
+                "task":"pause"
+            },
+            {
+                "task": "repeat",
+                "repeat_times": 3,
+                "work_flow": [
+                    {
+                        "task":"notify",
+                        "path":"19/0/0",
+                        "body": "$payload_19_0_0",
+                        "content_format": "application/octet-stream"
+                    },
+                    {
+                        "task":"sleep",
+                        "interval": "500ms"
+                    }
+                ]
+            },
+            {
+                "task":"sleep",
+                "interval": "30s"
+            },
+            {
+                "task":"deregister",
+                "timeout":60
+            }
+        ]
+    }
+]

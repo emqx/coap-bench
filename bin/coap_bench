@@ -549,7 +549,7 @@ case "$1" in
         relx_run_hooks "$POST_START_HOOKS"
         ;;
 
-    run|status|load|clear)
+    run|status|load|clear|resume)
         #$0 rpc coap_bench_cli command "$@";;
         if ! relx_nodetool "ping" > /dev/null; then
             echo "Node is not running!"

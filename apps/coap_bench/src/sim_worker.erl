@@ -2,13 +2,17 @@
 
 -behaviour(gen_statem).
 
--export([start_link/4]).
+-export([start_link/4, resume/1]).
 
 -export([init/1, callback_mode/0, terminate/3]).
 
 -export([send_msg/4]).
 
--export([working/3, sleep/3, wait_coap_msg/3]).
+-export([ working/3
+        , sleep/3
+        , pause/3
+        , wait_coap_msg/3
+        ]).
 
 -define(MAX_MESSAGE_ID, 65535). % 16-bit number
 
@@ -29,6 +33,9 @@
 
 start_link(WorkFlow, Vars, Sock, Conf) ->
     gen_statem:start_link(?MODULE, [WorkFlow, Vars, Sock, Conf], []).
+
+resume(SimWorker) ->
+    gen_statem:cast(SimWorker, resume).
 
 send_msg(Sock, Host, Port, CoapMsg) ->
     case gen_udp:send(Sock, Host, Port, lwm2m_coap_message_parser:encode(CoapMsg)) of
@@ -90,6 +97,12 @@ wait_coap_msg(EventType, Event, Data) ->
 sleep(state_timeout, wakeup, Data) ->
     continue_working(Data);
 sleep(EventType, Event, Data) ->
+    ?handle_events(EventType, Event, Data).
+
+pause(cast, resume, Data) ->
+    coap_bench_metrics:incr('PAUSE', -1),
+    continue_working(Data);
+pause(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
 %% -------------------------------------------
@@ -188,9 +201,35 @@ process_task(#data{workflow = [{notify, #{path := Path, content_format := Conten
             {stop, {shutdown, {not_observed, Path}}, Data#data{current_task = Task}}
     end;
 
-process_task(#data{workflow = [{sleep, #{interval := Sec}} = Task | WorkFlow]} = Data) ->
+process_task(#data{workflow = [{pause, #{}} = Task | WorkFlow]} = Data) ->
+    coap_bench_metrics:incr('PAUSE'),
+    {next_state, pause, Data#data{workflow = WorkFlow, current_task = Task},
+        [hibernate]};
+
+process_task(#data{workflow = [{sleep, #{interval := MillSec}} = Task | WorkFlow]} = Data) ->
     {next_state, sleep, Data#data{workflow = WorkFlow, current_task = Task},
-        [{state_timeout, timer:seconds(Sec), wakeup}, hibernate]};
+        [{state_timeout, MillSec, wakeup}, hibernate]};
+
+process_task(#data{workflow = [{repeat, #{repeat_times := TotalRepeat, work_flow := RepeatFlow}} = Task | WorkFlow]} = Data) ->
+    continue_working(
+        Data#data{
+            current_task = Task,
+            workflow = RepeatFlow ++ [{end_repeat, #{work_flow => RepeatFlow, remain => (TotalRepeat-1)}}] ++ WorkFlow
+        });
+
+process_task(#data{workflow = [{end_repeat, #{remain := 0, work_flow := _}} = Task | WorkFlow]} = Data) ->
+    continue_working(
+        Data#data{
+            current_task = Task,
+            workflow = WorkFlow
+        });
+
+process_task(#data{workflow = [{end_repeat, #{remain := RemainNum, work_flow := RepeatFlow}} = Task | WorkFlow]} = Data) ->
+    continue_working(
+        Data#data{
+            current_task = Task,
+            workflow = RepeatFlow ++ [{end_repeat, #{work_flow => RepeatFlow, remain => (RemainNum-1)}}] ++ WorkFlow
+        });
 
 process_task(#data{workflow = [Task | WorkFlow]} = Data) ->
     logger:error("unknow workflow: ~p, statedata: ~p", [Task, printable_data(Data)]),
@@ -200,10 +239,13 @@ handle_common_events(StateName, EventType, Event, Data) ->
     logger:warning("received unexpected event: ~p in state: ~p, statedata: ~p", [{EventType, Event}, StateName, printable_data(Data)]),
     common_events_state(StateName).
 
-common_events_state(sleep) ->
+common_events_state(StateName)
+        when StateName =:= pause;
+             StateName =:= sleep ->
     {keep_state_and_data, [hibernate]};
 common_events_state(_StateName) ->
     keep_state_and_data.
+
 
 terminate(Reason, _State, #data{workflow = [], sock = Sock} = Data) ->
     logger:debug("[~p] terminate: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),
@@ -240,7 +282,9 @@ send_response(Sock, Host, Port, CoapMsg, StateData, MsgId) ->
     end.
 
 continue_working(StateData) ->
-    {next_state, working, StateData, [{next_event, internal, continue_workflow}]}.
+    continue_working(StateData, []).
+continue_working(StateData, Actions) ->
+    {next_state, working, StateData, [{next_event, internal, continue_workflow} | Actions]}.
 
 trans_workflow(WorkFlow, Vars0) when is_list(WorkFlow) ->
     Vars = [bin(Tk) || Tk <- string:split(string:tokens(str(Vars0), "\n"), ",", all)],
