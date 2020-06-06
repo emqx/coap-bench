@@ -122,7 +122,7 @@ pause(EventType, Event, Data) ->
 process_task(#data{workflow = []} = Data) ->
     {stop, {shutdown, workflow_complete}, Data#data{current_task = undefined}};
 
-process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks, timeout := Timeout}} = Task | WorkFlow],
+process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks, timeout := MillSec}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    conf = #{host := Host, port := Port}} = Data) ->
@@ -145,11 +145,11 @@ process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, obje
     coap_bench_metrics:incr('REGISTER'),
     Register = coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks),
     send_request(Sock, Host, Port,
-        Register, Timeout,
+        Register, MillSec,
         Data#data{current_task = Task, workflow = WorkFlow},
         MsgId, Validitor);
 
-process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | WorkFlow],
+process_task(#data{workflow = [{deregister, #{timeout := MillSec}} = Task | WorkFlow],
                    sock = Sock,
                    nextmid = MsgId,
                    location = Location,
@@ -169,11 +169,11 @@ process_task(#data{workflow = [{deregister, #{timeout := Timeout}} = Task | Work
         end,
     coap_bench_metrics:incr('DEREGISTER'),
     Deregister = coap_bench_message:make_deregister(Location, MsgId),
-    send_request(Sock, Host, Port, Deregister, Timeout,
+    send_request(Sock, Host, Port, Deregister, MillSec,
         Data#data{current_task = Task, workflow = WorkFlow},
         MsgId, Validitor);
 
-process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
+process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := MillSec, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor = fun
@@ -194,7 +194,7 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := Sec, co
         end,
     coap_bench_metrics:incr('WAIT_OBSERVE'),
     {next_state, wait_coap_msg, Data#data{current_task = Task, workflow = WorkFlow, verify_msg = Validitor},
-        [{state_timeout, timer:seconds(Sec), wait_msg_timeout}]};
+        [{state_timeout, MillSec, wait_msg_timeout}]};
 
 process_task(#data{workflow = [{notify, #{path := Path, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
@@ -300,7 +300,7 @@ send_request(Sock, Host, Port, CoapMsg, Timeout, StateData, MsgId, Validitor) ->
                     nextmid = next_mid(MsgId),
                     verify_msg = Validitor
                 },
-                [{state_timeout, timer:seconds(Timeout), wait_msg_timeout}]};
+                [{state_timeout, Timeout, wait_msg_timeout}]};
         {error, Reason} ->
             logger:error("send request failed: ~p, statedata: ~p", [Reason, printable_data(StateData)]),
             {stop, {shutdown, Reason}}

@@ -1,3 +1,4 @@
+// Workflow for MQTT sims
 [
     {
         "group_name":"connection_only",
@@ -6,9 +7,9 @@
             {
                 "task":"connect",
                 "clientid": "$1",
-                "username": "$2",
-                "password": "$3",
-                "keepalive": "$4"
+                // "username": "$2",
+                // "password": "$3",
+                "keepalive": 300
             },
             {
                 "task":"sleep",

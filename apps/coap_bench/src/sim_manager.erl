@@ -99,16 +99,16 @@ do_parse_workflow(#{<<"task">> := <<"register">>} = Flow) ->
     {register, #{lifetime => maps:get(<<"lifetime">>, Flow, 60),
                  ep => maps:get(<<"ep">>, Flow, <<"$uuid">>),
                  object_links => maps:get(<<"object_links">>, Flow, ?DEFAULT_OBJ_LINKS),
-                 timeout => maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT)
+                 timeout => coap_bench_utils:interval(maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT))
                 }};
 
 do_parse_workflow(#{<<"task">> := <<"deregister">>} = Flow) ->
-    {deregister, #{timeout => maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT)}};
+    {deregister, #{timeout => coap_bench_utils:interval(maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT))}};
 
 do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := Body, <<"path">> := Path, <<"timeout">> := Sec} = Flow) when is_binary(Body) ->
-    {wait_observe, #{path => path_list(Path), body => Body, timeout => Sec, content_format => content_format(Flow)}};
+    {wait_observe, #{path => path_list(Path), body => Body, timeout => coap_bench_utils:interval(Sec), content_format => content_format(Flow)}};
 do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path, <<"timeout">> := Sec} = Flow) ->
-    {wait_observe, #{path => path_list(Path), body => auto_gen_binary, size => Size, timeout => Sec, content_format => content_format(Flow)}};
+    {wait_observe, #{path => path_list(Path), body => auto_gen_binary, size => Size, timeout => coap_bench_utils:interval(Sec), content_format => content_format(Flow)}};
 
 do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := Body, <<"path">> := Path} = Flow) when is_binary(Body) ->
     {notify, #{body => Body, path => path_list(Path), content_format => content_format(Flow)}};
@@ -119,7 +119,7 @@ do_parse_workflow(#{<<"task">> := <<"pause">>}) ->
     {pause, #{}};
 
 do_parse_workflow(#{<<"task">> := <<"sleep">>, <<"interval">> := Interval}) ->
-    {sleep, #{interval => interval(Interval)}};
+    {sleep, #{interval => coap_bench_utils:interval(Interval)}};
 
 do_parse_workflow(#{<<"task">> := <<"repeat">>, <<"repeat_times">> := RepeatNum, <<"work_flow">> := WorkFlow}) ->
     true = (is_integer(RepeatNum) andalso RepeatNum > 0),
@@ -133,23 +133,6 @@ content_format(Flow) ->
 
 path_list(Path) ->
     string:lexemes(Path, "/ ").
-
-interval(infinity) -> infinity;
-interval(Sec) when is_integer(Sec) -> timer:seconds(Sec);
-interval(Interval) when is_binary(Interval) ->
-    case re:run(Interval,"(\\d+)(ms|s|m|h|d)",[{capture,all_but_first,list}]) of
-        nomatch -> error({invalid_interval, Interval});
-        {match,[Num,"ms"]} ->
-            list_to_integer(Num);
-        {match,[Num,"s"]} ->
-            timer:seconds(list_to_integer(Num));
-        {match,[Num,"m"]} ->
-            timer:seconds(list_to_integer(Num)) * 60;
-        {match,[Num,"h"]} ->
-            timer:seconds(list_to_integer(Num)) * 60 * 60;
-        {match,[Num,"d"]} ->
-            timer:seconds(list_to_integer(Num)) * 60 * 60 * 24
-    end.
 
 on_unexpected_msg(<<"stop">>) -> #{action => stop};
 on_unexpected_msg(<<"do_nothing">>) -> #{action => do_nothing};
