@@ -8,7 +8,7 @@
 -behaviour(supervisor).
 
 -export([ start_link/0
-        , start_sim_groups/1
+        , start_sim_groups/2
         , stop_sim_groups/0
         , stop_sim_groups/1
         , status/1
@@ -38,17 +38,17 @@ init([]) ->
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
-start_sim_groups(Conf) ->
+start_sim_groups(Type, Conf) ->
     [spawn(
     fun() ->
         GroupName = group_name(GrpName),
         try
-            case supervisor:start_child(?MODULE, [GroupName]) of
+            case supervisor:start_child(?MODULE, [Type, GroupName]) of
                 {error,{already_started, _}} ->
                     error({test_group_already_started, GroupName});
                 {ok, _} -> ok
             end,
-            sim_group:start_sims(GroupName,
+            sim_group:start_sims(Type, GroupName,
                 parse_workflow(WorkFlow),
                 on_unexpected_msg(OnUnexpectedMsg),
                 GroupClientInfos, Conf)
@@ -95,6 +95,7 @@ group_name(GrpName) ->
 parse_workflow(WorkFlow) when is_list(WorkFlow) ->
     lists:map(fun do_parse_workflow/1, WorkFlow).
 
+%% LwM2M Tasks
 do_parse_workflow(#{<<"task">> := <<"register">>} = Flow) ->
     {register, #{lifetime => maps:get(<<"lifetime">>, Flow, 60),
                  ep => maps:get(<<"ep">>, Flow, <<"$uuid">>),
@@ -115,6 +116,19 @@ do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := Body, <<"path">> :
 do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path} = Flow) ->
     {notify, #{body => auto_gen_binary, size => Size, path => path_list(Path), content_format => content_format(Flow)}};
 
+%% MQTT Tasks
+do_parse_workflow(#{<<"task">> := <<"connect">>} = Flow) ->
+    {connect, #{keepalive => maps:get(<<"keepalive">>, Flow, 300),
+                clientid => maps:get(<<"clientid">>, Flow, <<"$uuid">>),
+                username => maps:get(<<"username">>, Flow, undefined),
+                password => maps:get(<<"password">>, Flow, undefined),
+                timeout => coap_bench_utils:interval(maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT))
+                }};
+do_parse_workflow(#{<<"task">> := <<"disconnect">>} = Flow) ->
+    {disconnect, #{timeout => coap_bench_utils:interval(maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT))
+                }};
+
+%% Common Tasks
 do_parse_workflow(#{<<"task">> := <<"pause">>}) ->
     {pause, #{}};
 

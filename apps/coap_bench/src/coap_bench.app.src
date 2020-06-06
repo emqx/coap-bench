@@ -9,7 +9,9 @@
     cli,
     lwm2m_coap,
     uuid,
-    jsx
+    jsx,
+    getopt,
+    emqtt
    ]},
   {env,[]},
   {modules, []},

@@ -13,7 +13,7 @@
             },
             {
                 "task":"sleep",
-                "interval": 30
+                "interval": 15
             },
             {
                 "task":"disconnect"

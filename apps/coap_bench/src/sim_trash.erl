@@ -20,7 +20,7 @@ trash_loop(State) ->
                 CoapMsg ->
                     coap_bench_message:incr_counter_rcvd(CoapMsg),
                     logger:error("[sim_trash] received coap message: ~p, sockname: ~p", [CoapMsg, inet:sockname(Sock)]),
-                    sim_worker:may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg)
+                    coap_sim_worker:may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg)
             catch
                 _:_ ->
                     logger:error("[sim_trash] received unknown udp message: ~p", [Packet])

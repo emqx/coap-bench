@@ -1,8 +1,8 @@
--module(sim_worker).
+-module(mqtt_sim_worker).
 
 -behaviour(gen_statem).
 
--export([start_link/5, resume/1]).
+-export([start_link/4, resume/1]).
 
 -export([init/1, callback_mode/0, terminate/3]).
 
@@ -20,20 +20,16 @@
         handle_common_events(?FUNCTION_NAME, EventType, EventContent, Data)).
 
 -record(data, {
-            sock,
-            sockname,
+            mqtt_client,
             conf = #{},
-            nextmid,
-            location = [],
-            observed = #{},
             workflow :: [],
             on_unexpected_msg :: #{},
             current_task,
             verify_msg :: fun((term()) -> {ok, #data{}} | {error, term()})
         }).
 
-start_link(WorkFlow, OnCoapMsgRcvd, Vars, Sock, Conf) ->
-    gen_statem:start_link(?MODULE, [WorkFlow, OnCoapMsgRcvd, Vars, Sock, Conf], []).
+start_link(WorkFlow, OnCoapMsgRcvd, Vars, Conf) ->
+    gen_statem:start_link(?MODULE, [WorkFlow, OnCoapMsgRcvd, Vars, Conf], []).
 
 resume(SimWorker) ->
     gen_statem:cast(SimWorker, resume).
@@ -50,19 +46,14 @@ send_msg(Sock, Host, Port, CoapMsg) ->
 
 may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg) ->
     case coap_bench_message:type(CoapMsg) of
-        con -> sim_worker:send_msg(Sock, PeerIP, PeerPortNo,
+        con -> coap_sim_worker:send_msg(Sock, PeerIP, PeerPortNo,
                     coap_bench_message:make_empty_ack(CoapMsg));
         _ -> ok
     end.
 
-init([WorkFlow, OnUnexpectedMsg, Vars, Sock, Conf]) ->
-    {ok, SockName} = inet:sockname(Sock),
-    inet:setopts(Sock, [{active, true}]),
+init([WorkFlow, OnUnexpectedMsg, Vars, Conf]) ->
     {ok, working, #data{
-            sock = Sock,
-            sockname = SockName,
             conf = Conf,
-            nextmid = first_mid(),
             workflow = trans_workflow(WorkFlow, Vars),
             on_unexpected_msg = OnUnexpectedMsg,
             current_task = undefined,
@@ -79,7 +70,7 @@ working(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
 wait_coap_msg(info, {udp, Sock, PeerIP, PeerPortNo, Packet},
-             #data{verify_msg = Validitor, sock = Sock,
+             #data{verify_msg = Validitor,
                    on_unexpected_msg = OnUnexpectedMsg} = Data) when is_function(Validitor) ->
     try
         lwm2m_coap_message_parser:decode(Packet)
@@ -110,7 +101,7 @@ sleep(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
 
 pause(cast, resume, Data) ->
-    coap_bench_metrics:incr('PAUSE', -1),
+    mqtt_bench_metrics:incr('PAUSE', -1),
     continue_working(Data);
 pause(EventType, Event, Data) ->
     ?handle_events(EventType, Event, Data).
@@ -122,97 +113,34 @@ pause(EventType, Event, Data) ->
 process_task(#data{workflow = []} = Data) ->
     {stop, {shutdown, workflow_complete}, Data#data{current_task = undefined}};
 
-process_task(#data{workflow = [{register, #{ep := Ep, lifetime := Lifetime, object_links := ObjectLinks, timeout := MillSec}} = Task | WorkFlow],
-                   sock = Sock,
-                   nextmid = MsgId,
-                   conf = #{host := Host, port := Port}} = Data) ->
-    Validitor = fun
-        (timeout, _StateData0) ->
-            coap_bench_metrics:incr('REGISTER_TIMEOUT');
-        (RcvdMsg, StateData0) ->
-            case {coap_bench_message:ack_validator(RcvdMsg, MsgId), coap_bench_message:location_path(RcvdMsg)} of
-                {_, []} ->
-                    coap_bench_metrics:incr('REGISTER_FAIL'),
-                    {error, {no_location_path, RcvdMsg}};
-                {false, _} ->
-                    coap_bench_metrics:incr('REGISTER_FAIL'),
-                    {error, {ack_not_matched, MsgId, RcvdMsg}};
-                {true, LocationPath} ->
-                    coap_bench_metrics:incr('REGISTER_SUCC'),
-                    {ok, StateData0#data{location = LocationPath}}
-            end
-        end,
-    coap_bench_metrics:incr('REGISTER'),
-    Register = coap_bench_message:make_register(Ep, Lifetime, MsgId, ObjectLinks),
-    send_request(Sock, Host, Port,
-        Register, MillSec,
-        Data#data{current_task = Task, workflow = WorkFlow},
-        MsgId, Validitor);
+process_task(#data{workflow = [{connect, ConnOpts} = Task | WorkFlow]} = Data) ->
+    mqtt_bench_metrics:incr('CONNECT'),
+    {ok, Client} = emqtt:start_link(conn_opts(ConnOpts)),
+    case emqtt:connect(Client) of
+        {ok, _Props} ->
+            mqtt_bench_metrics:incr('CONNECT_SUCC'),
+            continue_working(Data#data{current_task = Task, workflow = WorkFlow, mqtt_client = Client});
+        {error, connack_timeout} ->
+            mqtt_bench_metrics:incr('CONNECT_TIMEOUT'),
+            {stop, {shutdown, connack_timeout}};
+        {error, {Reason, _}} ->
+            mqtt_bench_metrics:incr('CONNECT_FAIL'),
+            {stop, {shutdown, {connack, Reason}}}
+    end;
 
-process_task(#data{workflow = [{deregister, #{timeout := MillSec}} = Task | WorkFlow],
-                   sock = Sock,
-                   nextmid = MsgId,
-                   location = Location,
-                   conf = #{host := Host, port := Port}} = Data) ->
-    Validitor = fun
-        (timeout, _StateData0) ->
-            coap_bench_metrics:incr('DEREGISTER_TIMEOUT');
-        (RcvdMsg, StateData0) ->
-            case coap_bench_message:ack_validator(RcvdMsg, MsgId) of
-                true ->
-                    coap_bench_metrics:incr('DEREGISTER_SUCC'),
-                    {ok, StateData0};
-                false ->
-                    coap_bench_metrics:incr('DEREGISTER_FAIL'),
-                    {error, {ack_not_matched, MsgId, RcvdMsg}}
-            end
-        end,
-    coap_bench_metrics:incr('DEREGISTER'),
-    Deregister = coap_bench_message:make_deregister(Location, MsgId),
-    send_request(Sock, Host, Port, Deregister, MillSec,
-        Data#data{current_task = Task, workflow = WorkFlow},
-        MsgId, Validitor);
-
-process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := MillSec, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
-                   sock = Sock,
-                   conf = #{host := Host, port := Port}} = Data) ->
-    Validitor = fun
-        (timeout, _StateData0) ->
-            coap_bench_metrics:incr('WAIT_OBSERVE_TIMEOUT');
-        (RcvdMsg, StateData0 = #data{observed = Observed}) ->
-            case {coap_bench_message:uri_path(RcvdMsg), coap_bench_message:token(RcvdMsg)} of
-                {Path0, Token0} when Path0 =:= Path, is_binary(Token0) ->
-                    Ack = coap_bench_message:make_ack(RcvdMsg, {ok, content}, make_body(BodyOpts),
-                            [{observe, 0}, {content_format, ContentFormat}]),
-                    send_msg(Sock, Host, Port, Ack),
-                    coap_bench_metrics:incr('WAIT_OBSERVE_SUCC'),
-                    {ok, StateData0#data{observed = Observed#{Path0 => Token0}}};
-                {Path0, Token0} ->
-                    coap_bench_metrics:incr('WAIT_OBSERVE_FAIL'),
-                    {error, {observe_path_not_matched, Path0, Token0}}
-            end
-        end,
-    coap_bench_metrics:incr('WAIT_OBSERVE'),
-    {next_state, wait_coap_msg, Data#data{current_task = Task, workflow = WorkFlow, verify_msg = Validitor},
-        [{state_timeout, MillSec, wait_msg_timeout}]};
-
-process_task(#data{workflow = [{notify, #{path := Path, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
-                   sock = Sock,
-                   nextmid = MsgId,
-                   observed = Observed,
-                   conf = #{host := Host, port := Port}} = Data) ->
-    case maps:find(Path, Observed) of
-        {ok, Token} ->
-            coap_bench_metrics:incr('NOTIFY'),
-            Notify = coap_bench_message:make_notify(non, Token, MsgId, make_body(BodyOpts), MsgId, ContentFormat),
-            send_response(Sock, Host, Port, Notify,
-                Data#data{current_task = Task, workflow = WorkFlow}, MsgId);
-        error ->
-            {stop, {shutdown, {not_observed, Path}}, Data#data{current_task = Task}}
+process_task(#data{workflow = [{disconnect, #{timeout := _MillSec}} = Task | WorkFlow], mqtt_client = Client} = Data) ->
+    mqtt_bench_metrics:incr('DISCONNECT'),
+    case emqtt:disconnect(Client) of
+        ok ->
+            mqtt_bench_metrics:incr('DISCONNECT_SUCC'),
+            continue_working(Data#data{current_task = Task, workflow = WorkFlow, mqtt_client = Client});
+        {error, Reason} ->
+            mqtt_bench_metrics:incr('DISCONNECT_FAIL'),
+            {stop, {shutdown, {disconnect, Reason}}}
     end;
 
 process_task(#data{workflow = [{pause, #{}} = Task | WorkFlow]} = Data) ->
-    coap_bench_metrics:incr('PAUSE'),
+    mqtt_bench_metrics:incr('PAUSE'),
     {next_state, pause, Data#data{workflow = WorkFlow, current_task = Task},
         [hibernate]};
 
@@ -281,39 +209,14 @@ handle_unexpected_coap_msg(Sock, PeerIP, PeerPortNo, CoapMsg, #{action := ack, c
     send_msg(Sock, PeerIP, PeerPortNo, Ack),
     keep_state_and_data.
 
-terminate(Reason, _State, #data{workflow = [], sock = Sock} = Data) ->
-    logger:debug("[~p] terminate: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),
-    sim_trash:take_socket(Sock);
-terminate(Reason, _State, #data{sock = Sock} = Data) ->
-    logger:error("[~p] terminate with pending tasks, reason: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]),
-    sim_trash:take_socket(Sock).
+terminate(Reason, _State, #data{workflow = []} = Data) ->
+    logger:debug("[~p] terminate: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]);
+terminate(Reason, _State, #data{} = Data) ->
+    logger:error("[~p] terminate with pending tasks, reason: ~p, statedata: ~p", [?MODULE, Reason, printable_data(Data)]).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-send_request(Sock, Host, Port, CoapMsg, Timeout, StateData, MsgId, Validitor) ->
-    case send_msg(Sock, Host, Port, CoapMsg) of
-        ok ->
-            {next_state, wait_coap_msg,
-                StateData#data{
-                    nextmid = next_mid(MsgId),
-                    verify_msg = Validitor
-                },
-                [{state_timeout, Timeout, wait_msg_timeout}]};
-        {error, Reason} ->
-            logger:error("send request failed: ~p, statedata: ~p", [Reason, printable_data(StateData)]),
-            {stop, {shutdown, Reason}}
-    end.
-send_response(Sock, Host, Port, CoapMsg, StateData, MsgId) ->
-    case send_msg(Sock, Host, Port, CoapMsg) of
-        ok -> continue_working(StateData#data{
-                 nextmid = next_mid(MsgId),
-                 verify_msg = undefined});
-        {error, Reason} ->
-            logger:error("send request failed: ~p, statedata: ~p", [Reason, printable_data(StateData)]),
-            {stop, {shutdown, Reason}}
-    end.
 
 continue_working(StateData) ->
     continue_working(StateData, []).
@@ -327,19 +230,6 @@ trans_workflow(WorkFlow, Vars0) when is_list(WorkFlow) ->
 do_trans_workflow({FlowName, Opts}, Vars) when is_map(Opts) ->
     {FlowName, coap_bench_utils:replace_map_var(Opts, Vars)}.
 
-make_body(#{body := auto_gen_binary, size := Size} = _Opts) ->
-    crypto:strong_rand_bytes(Size);
-make_body(#{body := Body}) when is_binary(Body) ->
-    Body.
-
-first_mid() ->
-    rand:uniform(?MAX_MESSAGE_ID).
-
-next_mid(MsgId) ->
-    if  MsgId < ?MAX_MESSAGE_ID -> MsgId + 1;
-        true -> 1 % or 0?
-    end.
-
 bin(Tk) when is_binary(Tk) -> Tk;
 bin(Tk) when is_list(Tk) -> list_to_binary(Tk).
 
@@ -347,14 +237,21 @@ str(Str) when is_list(Str) -> Str;
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
 printable_data(#data{
-            sockname = SockName,
-            nextmid = NextMsgId,
-            location = Location,
-            observed = Observed,
             workflow = RemainWorkFlow,
             current_task = CurrentTask
         }) ->
-    #{sockname => SockName, nextmid => NextMsgId,
-      location => Location, observed => Observed,
-      current_task => CurrentTask,
+    #{current_task => CurrentTask,
       pending_workflow => RemainWorkFlow}.
+
+%%%===================================================================
+%%% MQTT Options
+%%%===================================================================
+
+conn_opts(Conf = #{clientid := ClientId, timeout := _MillSec}) ->
+    [{clientid, ClientId}] ++ opt(username, Conf) ++ opt(password, Conf) ++ opt(keepalive, Conf).
+
+opt(Key, Conf) ->
+    case maps:get(Key, Conf, undefined) of
+        undefined -> [];
+        Value -> [{Key, Value}]
+    end.

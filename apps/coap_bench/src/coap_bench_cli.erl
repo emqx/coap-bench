@@ -117,7 +117,7 @@ handle_args(run, {Opts, []}) ->
                     io:format("Force start test with conf: ~p~n", [Conf]);
                 false -> io:format("Start test with conf: ~p~n", [Conf])
             end,
-            ok = sim_manager:start_sim_groups(Conf);
+            ok = sim_manager:start_sim_groups(lwm2m, Conf);
         false ->
             io:format("Not initialized. Please do 'coap_bench load <client-info-file> <workflow-file>' first!~n")
     end;
