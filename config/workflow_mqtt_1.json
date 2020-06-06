@@ -1,0 +1,22 @@
+[
+    {
+        "group_name":"connection_only",
+        "weight": 1,
+        "work_flow":[
+            {
+                "task":"connect",
+                "clientid": "$1",
+                "username": "$2",
+                "password": "$3",
+                "keepalive": "$4"
+            },
+            {
+                "task":"sleep",
+                "interval": 30
+            },
+            {
+                "task":"disconnect"
+            }
+        ]
+    }
+]
