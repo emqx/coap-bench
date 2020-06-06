@@ -1,11 +1,14 @@
 [
     {
+        // sims in this group do nothing but only to
+        // register - sleep - deregister
         "group_name":"register_only",
-        "weight": 1,
+        "weight": 1, // this controlls the ratio that num of sims runing in this group to the total num of sims
         "work_flow":[
             {
                 "task":"register",
-                "lifetime": "$2"
+               //"ep": "$uuid",
+                "lifetime": "$2" // using the value specified by the 2nd column in the CSV file
             },
             {
                 "task":"sleep",
@@ -22,7 +25,7 @@
         "work_flow":[
             {
                 "task":"register",
-                "ep": "$1",
+                "ep": "$1", // can be "$N" or "$uuid", defaults to $uuid
                 "lifetime":120,
                 "timeout":60,
                 "object_links": "</>;rt=\"oma.lwm2m\",</3/0>,</19/0>"

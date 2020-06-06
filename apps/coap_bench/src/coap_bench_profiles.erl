@@ -16,25 +16,46 @@ is_ready() ->
 
 load_profiles(ClientInfoFile, WorkflowFile) ->
     %% load workflow
-    {ok, Workflow} = file:read_file(WorkflowFile),
+    {ok, Fdflow} = file:open(WorkflowFile, [read]),
+    Workflow = try iolist_to_binary(load_workflow(Fdflow))
+               after file:close(Fdflow)
+               end,
     [_ | _] = JsonWorkflow = jsx:decode(Workflow, [return_maps]),
     ets:insert(?MODULE, {workflow, JsonWorkflow}),
 
     %% load client info and distribute the clients by group
-    {ok, Device} = file:open(ClientInfoFile, [read]),
+    {ok, FdClient} = file:open(ClientInfoFile, [read]),
     {ClientInfos, ClientNum} =
-        try load_line_by_line(Device, {[], 0})
-        after file:close(Device)
+        try load_clients(FdClient, {[], 0})
+        after file:close(FdClient)
         end,
     GroupdClientInfo = tasks_with_grouped_client_infos(get_workflow(), ClientInfos),
     ets:insert(?MODULE, {client_infos, GroupdClientInfo}),
     {ClientNum, length(JsonWorkflow)}.
 
-load_line_by_line(Device, {Acc, Num}) ->
-    case file:read_line(Device) of
+load_workflow(Fd) ->
+    case file:read_line(Fd) of
+        eof -> [];
+        {ok, Line} ->
+            ommit_comments(Line, "//") ++ load_workflow(Fd)
+    end.
+
+load_clients(Fd, {Acc, Num}) ->
+    case file:read_line(Fd) of
         eof -> {Acc, Num};
-        {ok, ClientInfo} ->
-           load_line_by_line(Device, {[ClientInfo | Acc], Num+1})
+        {ok, Line} ->
+            case ommit_comments(Line, "#") of
+                [] -> load_clients(Fd, {Acc, Num});
+                ClientInfo -> load_clients(Fd, {[ClientInfo | Acc], Num+1})
+            end
+    end.
+
+%% comments are lines begin with "//" or "#" (single line comments) or
+%% the texts after "//" or "#" (inline comments)
+ommit_comments(Line, CommentToken) ->
+    case string:split(Line, CommentToken) of
+        [Literals, _Comments] -> string:trim(Literals);
+        [Literals] -> string:trim(Literals)
     end.
 
 get_client_info() ->
