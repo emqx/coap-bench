@@ -113,9 +113,9 @@ pause(EventType, Event, Data) ->
 process_task(#data{workflow = []} = Data) ->
     {stop, {shutdown, workflow_complete}, Data#data{current_task = undefined}};
 
-process_task(#data{workflow = [{connect, ConnOpts} = Task | WorkFlow]} = Data) ->
+process_task(#data{workflow = [{connect, ConnOpts} = Task | WorkFlow], conf = Conf} = Data) ->
     mqtt_bench_metrics:incr('CONNECT'),
-    {ok, Client} = emqtt:start_link(conn_opts(ConnOpts)),
+    {ok, Client} = emqtt:start_link(conn_opts(ConnOpts, Conf)),
     case emqtt:connect(Client) of
         {ok, _Props} ->
             mqtt_bench_metrics:incr('CONNECT_SUCC'),
@@ -247,8 +247,8 @@ printable_data(#data{
 %%% MQTT Options
 %%%===================================================================
 
-conn_opts(Conf = #{clientid := ClientId, timeout := _MillSec}) ->
-    [{clientid, ClientId}] ++ opt(username, Conf) ++ opt(password, Conf) ++ opt(keepalive, Conf).
+conn_opts(Conf = #{clientid := ClientId, timeout := _MillSec}, BaseConf) ->
+    [{clientid, ClientId}] ++ opt(username, Conf) ++ opt(password, Conf) ++ opt(keepalive, Conf) ++ BaseConf.
 
 opt(Key, Conf) ->
     case maps:get(Key, Conf, undefined) of

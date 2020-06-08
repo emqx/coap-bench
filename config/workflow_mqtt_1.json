@@ -7,13 +7,13 @@
             {
                 "task":"connect",
                 "clientid": "$1",
-                // "username": "$2",
-                // "password": "$3",
+                "username": "aaaaaa",
+                "password": "7x2AguO8Gns407XKXvaXaeBPFsbG5QYx9SGLjuktMIk",
                 "keepalive": 300
             },
             {
                 "task":"sleep",
-                "interval": 15
+                "interval": 86400
             },
             {
                 "task":"disconnect"

@@ -17,7 +17,7 @@
          {startnumber, $n, "startnumber", {integer, 0}, "start number"},
          {'connect-interval', $i, "connect-interval", {integer, 10},
           "interval of connecting to the broker"},
-         {bind, undefined, "bind", string,
+         {bind, $b, "bind", string,
           "local ipaddress or interface address"}
         ]).
 
@@ -47,7 +47,7 @@ command(["run"|Argv]) ->
     case coap_bench_profiles:is_ready() of
         true ->
             Conf = parse_conf(Opts),
-            case proplists:get_value(f, Opts, false) of
+            case proplists:get_value(force, Opts, false) of
                 true ->
                     sim_manager:stop_sim_groups(),
                     io:format("Force start test with conf: ~p~n", [Conf]);
@@ -64,7 +64,7 @@ command(["resume"|_]) ->
 command(["clear"|Argv]) ->
     {ok, {Opts, _Args}} = getopt:parse(?CLEAR_OPTS, Argv),
     ok = maybe_help(clear, Opts),
-    case proplists:get_value(g, Opts, all) of
+    case proplists:get_value(group, Opts, all) of
         all ->
             io:format("Stop all task groups~n"),
             sim_manager:stop_sim_groups();
@@ -81,7 +81,7 @@ command(["status"|Argv]) ->
         0 ->
             io:format("No Running Task Groups!~n");
         GrpCount ->
-            case {proplists:get_value(s, Opts, false), proplists:get_value(m, Opts, false)} of
+            case {proplists:get_value(sims, Opts, false), proplists:get_value(metrics, Opts, false)} of
                 {false, false} -> print_status(GrpCount),print_metrics();
                 {true, true} -> print_status(GrpCount),print_metrics();
                 {true, false} -> print_status(GrpCount);
@@ -122,11 +122,11 @@ print_metrics() ->
     io:format("~60..=s~n", [""]).
 
 parse_conf(Opts) ->
-    {ok, Host} = inet:parse_address(proplists:get_value(h, Opts, "127.0.0.1")),
-    Port = list_to_integer(proplists:get_value(p, Opts, "5683")),
+    {ok, Host} = inet:parse_address(proplists:get_value(host, Opts, "127.0.0.1")),
+    Port = to_integer(proplists:get_value(port, Opts, "1883")),
     Binds = [begin {ok, IP} = inet:parse_address(IPAddr), IP end
-            || IPAddr <- string:tokens(proplists:get_value(b, Opts, "127.0.0.1"), ", ")],
-    ConnInterval = list_to_integer(proplists:get_value(i, Opts, "10")),
+            || IPAddr <- string:tokens(proplists:get_value(bind, Opts, "127.0.0.1"), ", ")],
+    ConnInterval = to_integer(proplists:get_value('connect-interval', Opts, "10")),
     #{host => Host, port => Port,
       binds => Binds, conn_interval => ConnInterval}.
 
@@ -146,3 +146,6 @@ usage(PubSub) ->
             status -> ?STATUS_OPTS
         end,
         "./mqtt_bench " ++ atom_to_list(PubSub)).
+
+to_integer(L) when is_list(L) -> list_to_integer(L);
+to_integer(I) when is_integer(I) -> I.
