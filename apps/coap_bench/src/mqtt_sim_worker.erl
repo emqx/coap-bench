@@ -258,7 +258,8 @@ conn_opts(Conf = #{clientid := ClientId, timeout := _MillSec}, BaseConf) ->
      opt(username, Conf) ++
      opt(password, Conf) ++
      opt(keepalive, Conf) ++
-     [{tcp_opts, [{ip, proplists:get_value(bind, BaseConf)}]}] ++
+     [{tcp_opts, [{ip, proplists:get_value(bind, BaseConf)}]}, {force_ping, true}] ++
+
      BaseConf.
 
 opt(Key, Conf) ->
