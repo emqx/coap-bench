@@ -122,7 +122,9 @@ print_metrics() ->
     io:format("~60..=s~n", [""]).
 
 parse_conf(Opts) ->
-    {ok, Host} = inet:parse_address(proplists:get_value(host, Opts, "127.0.0.1")),
+    Hosts = string:tokens(proplists:get_value(host, Opts, "127.0.0.1"), ", "),
+    Host0 = lists:nth(rand:uniform(length(Hosts)), Hosts),
+    {ok, Host} = inet:parse_address(Host0),
     Port = to_integer(proplists:get_value(port, Opts, "1883")),
     Binds = [begin {ok, IP} = inet:parse_address(IPAddr), IP end
             || IPAddr <- string:tokens(proplists:get_value(bind, Opts, "127.0.0.1"), ", ")],
