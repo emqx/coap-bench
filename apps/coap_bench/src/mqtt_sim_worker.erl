@@ -233,7 +233,7 @@ do_trans_workflow({FlowName, Opts}, Vars) when is_map(Opts) ->
 trans_conf(Conf) when is_list(Conf) ->
     Hosts = proplists:get_value(hosts, Conf),
     Host = lists:nth(rand:uniform(length(Hosts)), Hosts),
-    Conf1 = lists:delete(hosts, Conf),
+    Conf1 = lists:delete(Hosts, Conf),
     Conf1 ++ [{host, Host}].
 
 bin(Tk) when is_binary(Tk) -> Tk;
