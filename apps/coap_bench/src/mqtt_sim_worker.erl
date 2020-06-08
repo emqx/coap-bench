@@ -53,7 +53,7 @@ may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg) ->
 
 init([WorkFlow, OnUnexpectedMsg, Vars, Conf]) ->
     {ok, working, #data{
-            conf = Conf,
+            conf = trans_conf(Conf),
             workflow = trans_workflow(WorkFlow, Vars),
             on_unexpected_msg = OnUnexpectedMsg,
             current_task = undefined,
@@ -229,6 +229,11 @@ trans_workflow(WorkFlow, Vars0) when is_list(WorkFlow) ->
 
 do_trans_workflow({FlowName, Opts}, Vars) when is_map(Opts) ->
     {FlowName, coap_bench_utils:replace_map_var(Opts, Vars)}.
+
+trans_conf(Conf) when is_list(Conf) ->
+    Hosts = string:tokens(proplists:get_value(host, Conf, "127.0.0.1"), ", "),
+    Host = lists:nth(rand:uniform(length(Hosts)), Hosts),
+    lists:keyreplace(host, 1, {host, Host}, Conf).
 
 bin(Tk) when is_binary(Tk) -> Tk;
 bin(Tk) when is_list(Tk) -> list_to_binary(Tk).
