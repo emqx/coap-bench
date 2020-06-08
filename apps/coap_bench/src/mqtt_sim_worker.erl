@@ -233,7 +233,7 @@ do_trans_workflow({FlowName, Opts}, Vars) when is_map(Opts) ->
 trans_conf(Conf) when is_list(Conf) ->
     Hosts = proplists:get_value(hosts, Conf),
     Host = lists:nth(rand:uniform(length(Hosts)), Hosts),
-    Conf1 = lists:delete(Hosts, Conf),
+    Conf1 = lists:keydelete(hosts,1, Conf),
     Conf1 ++ [{host, Host}].
 
 bin(Tk) when is_binary(Tk) -> Tk;
@@ -254,7 +254,12 @@ printable_data(#data{
 %%%===================================================================
 
 conn_opts(Conf = #{clientid := ClientId, timeout := _MillSec}, BaseConf) ->
-    [{clientid, ClientId}] ++ opt(username, Conf) ++ opt(password, Conf) ++ opt(keepalive, Conf) ++ BaseConf.
+    [{clientid, ClientId}] ++
+     opt(username, Conf) ++
+     opt(password, Conf) ++
+     opt(keepalive, Conf) ++
+     [{tcp_opts, [{ip, proplists:get_value(bind, BaseConf)}]}] ++
+     BaseConf.
 
 opt(Key, Conf) ->
     case maps:get(Key, Conf, undefined) of
