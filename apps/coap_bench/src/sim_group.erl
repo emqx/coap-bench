@@ -61,5 +61,5 @@ status(GrpName, count) ->
 pick(List) ->
     lists:nth(rand:uniform(length(List)), List).
 
-mqtt_conf(#{host := Host, port := Port, binds := Binds}) ->
-    [{host, Host}, {port, Port}, {bind, pick(Binds)}].
+mqtt_conf(#{hosts := Hosts, port := Port, binds := Binds}) ->
+    [{hosts, Hosts}, {port, Port}, {bind, pick(Binds)}].

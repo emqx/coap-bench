@@ -122,14 +122,13 @@ print_metrics() ->
     io:format("~60..=s~n", [""]).
 
 parse_conf(Opts) ->
-    Hosts = string:tokens(proplists:get_value(host, Opts, "127.0.0.1"), ", "),
-    Host0 = lists:nth(rand:uniform(length(Hosts)), Hosts),
-    {ok, Host} = inet:parse_address(Host0),
+    Hosts = [begin {ok, IP} = inet:parse_address(IPAddr), IP end
+            || IPAddr <- string:tokens(proplists:get_value(host, Opts, "127.0.0.1"), ", ")],
     Port = to_integer(proplists:get_value(port, Opts, "1883")),
     Binds = [begin {ok, IP} = inet:parse_address(IPAddr), IP end
             || IPAddr <- string:tokens(proplists:get_value(bind, Opts, "127.0.0.1"), ", ")],
     ConnInterval = to_integer(proplists:get_value('connect-interval', Opts, "10")),
-    #{host => Host, port => Port,
+    #{hosts => Hosts, port => Port,
       binds => Binds, conn_interval => ConnInterval}.
 
 maybe_help(PubSub, Opts) ->
