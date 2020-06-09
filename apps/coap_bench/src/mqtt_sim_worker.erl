@@ -114,8 +114,8 @@ process_task(#data{workflow = []} = Data) ->
     {stop, {shutdown, workflow_complete}, Data#data{current_task = undefined}};
 
 process_task(#data{workflow = [{connect, ConnOpts} = Task | WorkFlow], conf = Conf} = Data) ->
-    mqtt_bench_metrics:incr('CONNECT'),
     {ok, Client} = emqtt:start_link(conn_opts(ConnOpts, Conf)),
+    mqtt_bench_metrics:incr('CONNECT'),
     case emqtt:connect(Client) of
         {ok, _Props} ->
             mqtt_bench_metrics:incr('CONNECT_SUCC'),
