@@ -34,9 +34,13 @@ init_cli() ->
     ResumeParser = cli:parser(
         "coap_bench resume",
         "[OPTION]...",
-        "Resume all of the paused sims.\n"
+        "Resume all of the paused sims in the given time peroid.\n"
         "\n",
-        [], []
+        [
+            {t, "-T, --time-range", "The time range (in second) after which all of the sims will be woken up. [delfault: 1]", [{metavar, "Range"}]},
+            {g, "-G, --group", "Task group name. If not specified, all of the groups will be woken up", [{metavar, "GROUP"}]}
+        ],
+        []
     ),
 
     ClearParser = cli:parser(
@@ -135,8 +139,17 @@ handle_args(clear, {Opts, _}) ->
             sim_manager:stop_sim_groups(Name)
     end;
 
-handle_args(resume, {_Opts, _}) ->
-    sim_manager:resume_sim_groups();
+handle_args(resume, {Opts, _}) ->
+    Range = timer:seconds(list_to_integer(proplists:get_value(t, Opts, "1"))),
+    case proplists:get_value(g, Opts, all) of
+        all ->
+            io:format("Resume all task groups~n"),
+            sim_manager:resume_sim_groups(Range);
+        GrpName ->
+            Name = list_to_atom(GrpName),
+            io:format("Resume task group: ~p~n", [Name]),
+            sim_manager:resume_sim_groups(Name, Range)
+    end;
 
 handle_args(load, {_, [ClientInfoFile, WorkflowFile]}) ->
     {ClientCount, GroupsCount} = coap_bench_profiles:load_profiles(ClientInfoFile, WorkflowFile),

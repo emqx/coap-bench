@@ -9,7 +9,7 @@
 
 -export([ start_link/2
         , start_sims/6
-        , resume_sims/1
+        , resume_sims/2
         , status/2
         ]).
 
@@ -48,9 +48,13 @@ start_sims(mqtt, GrpName, WorkFlow, OnUnexpectedMsg, ClientInfos, Conf = #{conn_
      end|| Vars <- ClientInfos],
     ok.
 
-resume_sims(GroupPid) ->
-    [coap_sim_worker:resume(SimPid)
-     || {_,SimPid,_,_} <- supervisor:which_children(GroupPid)].
+resume_sims(GroupPid, Range) ->
+    NumSims = status(GroupPid, count),
+    WakeupInterval = floor(Range / NumSims),
+    [begin
+        coap_sim_worker:resume(SimPid),
+        timer:sleep(WakeupInterval)
+     end|| {_,SimPid,_,_} <- supervisor:which_children(GroupPid)].
 
 status(GrpName, count) ->
     Status = supervisor:count_children(GrpName),

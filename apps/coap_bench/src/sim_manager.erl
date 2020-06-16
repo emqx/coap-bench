@@ -12,7 +12,8 @@
         , stop_sim_groups/0
         , stop_sim_groups/1
         , status/1
-        , resume_sim_groups/0
+        , resume_sim_groups/1
+        , resume_sim_groups/2
         ]).
 
 -export([init/1]).
@@ -74,9 +75,12 @@ stop_sim_groups() ->
 stop_sim_groups(GrpName) ->
     supervisor:terminate_child(?MANAGER, erlang:whereis(GrpName)).
 
-resume_sim_groups() ->
-    [sim_group:resume_sims(GrpPid)
+resume_sim_groups(Range) ->
+    [sim_group:resume_sims(GrpPid, Range)
      || {_,GrpPid,_,_} <- supervisor:which_children(?MANAGER)].
+
+resume_sim_groups(GrpName, Range) ->
+    sim_group:resume_sims(erlang:whereis(GrpName), Range).
 
 status(count) ->
     Status = supervisor:count_children(?MANAGER),
