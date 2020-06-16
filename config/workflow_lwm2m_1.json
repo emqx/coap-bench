@@ -33,6 +33,7 @@
             {
                 "task":"wait_observe",
                 "path":"/3/0",
+                "allow_retry": true,
                 "body": "$payload_3_0",
                 "content_format": "application/vnd.oma.lwm2m+tlv",
                 "timeout":60
@@ -40,6 +41,7 @@
             {
                 "task":"wait_observe",
                 "path":"19/0/0",
+                "allow_retry": true,
                 "body": "$payload_19_0_0",
                 "content_format": "application/octet-stream",
                 "timeout":60

@@ -111,9 +111,9 @@ do_parse_workflow(#{<<"task">> := <<"deregister">>} = Flow) ->
     {deregister, #{timeout => coap_bench_utils:interval(maps:get(<<"timeout">>, Flow, ?REQ_TIMEOUT))}};
 
 do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := Body, <<"path">> := Path, <<"timeout">> := Sec} = Flow) when is_binary(Body) ->
-    {wait_observe, #{path => path_list(Path), body => Body, timeout => coap_bench_utils:interval(Sec), content_format => content_format(Flow)}};
+    {wait_observe, #{path => path_list(Path), body => Body, timeout => coap_bench_utils:interval(Sec), content_format => content_format(Flow), allow_retry => allow_retry(Flow)}};
 do_parse_workflow(#{<<"task">> := <<"wait_observe">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path, <<"timeout">> := Sec} = Flow) ->
-    {wait_observe, #{path => path_list(Path), body => auto_gen_binary, size => Size, timeout => coap_bench_utils:interval(Sec), content_format => content_format(Flow)}};
+    {wait_observe, #{path => path_list(Path), body => auto_gen_binary, size => Size, timeout => coap_bench_utils:interval(Sec), content_format => content_format(Flow), allow_retry => allow_retry(Flow)}};
 
 do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := Body, <<"path">> := Path} = Flow) when is_binary(Body) ->
     {notify, #{body => Body, path => path_list(Path), content_format => content_format(Flow)}};
@@ -151,6 +151,9 @@ content_format(Flow) ->
 
 path_list(Path) ->
     string:lexemes(Path, "/ ").
+
+allow_retry(Flow) ->
+    maps:get(<<"allow_retry">>, Flow, true).
 
 on_unexpected_msg(<<"stop">>) -> #{action => stop};
 on_unexpected_msg(<<"do_nothing">>) -> #{action => do_nothing};

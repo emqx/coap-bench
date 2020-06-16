@@ -9,6 +9,7 @@
         , make_ack/4
         , make_empty_ack/1
         , uri_path/1
+        , id/1
         , token/1
         , type/1
         , incr_counter_sent/1
@@ -62,6 +63,8 @@ make_ack(#coap_message{id = MsgId, token = Token}, Code, Payload, Options) ->
 
 ack_validator(#coap_message{type = ack, id = MsgId}, MsgId) -> true;
 ack_validator(_, _) -> false.
+
+id(#coap_message{id = Id}) -> Id.
 
 location_path(#coap_message{options = Options}) ->
     proplists:get_value(location_path, Options, []);

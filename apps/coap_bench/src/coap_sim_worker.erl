@@ -26,6 +26,7 @@
             nextmid,
             location = [],
             observed = #{},
+            allow_retry_cons = #{},
             workflow :: [],
             on_unexpected_msg :: #{},
             current_task,
@@ -89,6 +90,8 @@ wait_coap_msg(info, {udp, Sock, PeerIP, PeerPortNo, Packet},
             case Validitor(CoapMsg, Data) of
                 {ok, StateData} ->
                     continue_working(StateData#data{verify_msg = undefined});
+                {error, ignore} ->
+                    keep_state_and_data;
                 {error, Reason} ->
                     logger:error("received coap message that not expected: ~p, reason: ~p, statedata: ~p", [CoapMsg, Reason, printable_data(Data)]),
                     handle_unexpected_coap_msg(Sock, PeerIP, PeerPortNo, CoapMsg, OnUnexpectedMsg)
@@ -173,7 +176,7 @@ process_task(#data{workflow = [{deregister, #{timeout := MillSec}} = Task | Work
         Data#data{current_task = Task, workflow = WorkFlow},
         MsgId, Validitor);
 
-process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := MillSec, content_format := ContentFormat} = BodyOpts} = Task | WorkFlow],
+process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := MillSec, content_format := ContentFormat, allow_retry := AllowRetry} = BodyOpts} = Task | WorkFlow],
                    sock = Sock,
                    conf = #{host := Host, port := Port}} = Data) ->
     Validitor = fun
@@ -186,10 +189,17 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := MillSec
                             [{observe, 0}, {content_format, ContentFormat}]),
                     send_msg(Sock, Host, Port, Ack),
                     coap_bench_metrics:incr('WAIT_OBSERVE_SUCC'),
-                    {ok, StateData0#data{observed = Observed#{Path0 => Token0}}};
+                    StateData1 = store_retry_cons(AllowRetry, RcvdMsg, Ack, StateData0),
+                    {ok, StateData1#data{observed = Observed#{Path0 => Token0}}};
                 {Path0, Token0} ->
-                    coap_bench_metrics:incr('WAIT_OBSERVE_FAIL'),
-                    {error, {observe_path_not_matched, Path0, Token0}}
+                    case check_retry_cons(RcvdMsg, StateData0) of
+                        {ok, Ack} ->
+                            send_msg(Sock, Host, Port, Ack),
+                            {error, ignore};
+                        error ->
+                            coap_bench_metrics:incr('WAIT_OBSERVE_FAIL'),
+                            {error, {observe_path_not_matched, Path0, Token0}}
+                    end
             end
         end,
     coap_bench_metrics:incr('WAIT_OBSERVE'),
@@ -244,6 +254,19 @@ process_task(#data{workflow = [{end_repeat, #{remain := RemainNum, work_flow := 
 process_task(#data{workflow = [Task | WorkFlow]} = Data) ->
     logger:error("unknow workflow: ~p, statedata: ~p", [Task, printable_data(Data)]),
     continue_working(Data#data{current_task = Task, workflow = WorkFlow}).
+
+store_retry_cons(true, RcvdMsg, Ack, StateData = #data{allow_retry_cons = ARCons}) ->
+    MsgId = coap_bench_message:id(RcvdMsg),
+    StateData#data{allow_retry_cons = ARCons#{MsgId => Ack}};
+store_retry_cons(false, _RcvdMsg, _Ack, StateData) ->
+    StateData.
+
+check_retry_cons(RcvdMsg, #data{allow_retry_cons = ARCons}) ->
+    MsgId = coap_bench_message:id(RcvdMsg),
+    case maps:find(MsgId, ARCons) of
+        {ok, Ack} -> {ok, Ack};
+        error -> error
+    end.
 
 handle_common_events(StateName, info, {udp, Sock, PeerIP, PeerPortNo, Packet},
              #data{on_unexpected_msg = OnUnexpectedMsg} = Data) ->
