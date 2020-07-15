@@ -56,13 +56,15 @@ may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg) ->
         _ -> ok
     end.
 
-init([WorkFlow, OnUnexpectedMsg, Vars, Sock, Conf]) ->
+init([WorkFlow, OnUnexpectedMsg, Vars, Sock, Conf0]) ->
+    {Hosts, Conf} = maps:take(hosts, Conf0),
+    Host = lists:nth(rand:uniform(length(Hosts)), Hosts),
     {ok, SockName} = inet:sockname(Sock),
     inet:setopts(Sock, [{active, true}]),
     {ok, working, #data{
             sock = Sock,
             sockname = SockName,
-            conf = Conf,
+            conf = Conf#{host => Host},
             nextmid = first_mid(),
             workflow = trans_workflow(WorkFlow, Vars),
             on_unexpected_msg = OnUnexpectedMsg,
@@ -184,7 +186,7 @@ process_task(#data{workflow = [{wait_observe, #{path := Path, timeout := MillSec
             coap_bench_metrics:incr('WAIT_OBSERVE_TIMEOUT');
         (RcvdMsg, StateData0 = #data{observed = Observed}) ->
             case {coap_bench_message:uri_path(RcvdMsg), coap_bench_message:token(RcvdMsg)} of
-                {Path0, Token0} when Path0 =:= Path, is_binary(Token0) ->
+                {Path0, Token0} when is_binary(Token0) ->
                     Ack = coap_bench_message:make_ack(RcvdMsg, {ok, content}, make_body(BodyOpts),
                             [{observe, 0}, {content_format, ContentFormat}]),
                     send_msg(Sock, Host, Port, Ack),

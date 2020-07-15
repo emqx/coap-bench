@@ -184,10 +184,11 @@ print_metrics() ->
     io:format("~60..=s~n", [""]).
 
 parse_conf(Opts) ->
-    {ok, Host} = inet:parse_address(proplists:get_value(h, Opts, "127.0.0.1")),
+    Hosts = [begin {ok, IP} = inet:parse_address(IPAddr), IP end
+            || IPAddr <- string:tokens(proplists:get_value(h, Opts, "127.0.0.1"), ", ")],
     Port = list_to_integer(proplists:get_value(p, Opts, "5683")),
     Binds = [begin {ok, IP} = inet:parse_address(IPAddr), IP end
             || IPAddr <- string:tokens(proplists:get_value(b, Opts, "127.0.0.1"), ", ")],
     ConnInterval = list_to_integer(proplists:get_value(i, Opts, "10")),
-    #{host => Host, port => Port,
+    #{hosts => Hosts, port => Port,
       binds => Binds, conn_interval => ConnInterval}.

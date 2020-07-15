@@ -48,13 +48,30 @@ start_sims(mqtt, GrpName, WorkFlow, OnUnexpectedMsg, ClientInfos, Conf = #{conn_
      end|| Vars <- ClientInfos],
     ok.
 
+%resume_sims(GroupPid, Range) ->
+%    NumSims = status(GroupPid, count),
+%    WakeupInterval = floor(Range / NumSims),
+%    [begin
+%        coap_sim_worker:resume(SimPid),
+%        timer:sleep(WakeupInterval)
+%     end|| {_,SimPid,_,_} <- supervisor:which_children(GroupPid)].
+
 resume_sims(GroupPid, Range) ->
-    NumSims = status(GroupPid, count),
-    WakeupInterval = floor(Range / NumSims),
-    [begin
-        coap_sim_worker:resume(SimPid),
-        timer:sleep(WakeupInterval)
-     end|| {_,SimPid,_,_} <- supervisor:which_children(GroupPid)].
+    spawn(fun() ->
+        Sims = supervisor:which_children(GroupPid),
+        resume(Sims, 0, floor(length(Sims)/Range) * 10, 10, [])
+    end).
+
+resume([], _Start, _Len, _WakeupInterval, Acc) ->
+    [coap_sim_worker:resume(SimPid) || SimPid <- Acc];
+
+resume(Sims, Start, Len, WakeupInterval, Acc) when Start =:= Len ->
+    [coap_sim_worker:resume(SimPid) || SimPid <- Acc],
+    timer:sleep(WakeupInterval),
+    resume(Sims, 0, Len, WakeupInterval, []);
+
+resume([{_,SimPid,_,_}| Sims], Start, Len, WakeupInterval, Acc) ->
+    resume(Sims, Start + 1, Len, WakeupInterval, [SimPid| Acc]).
 
 status(GrpName, count) ->
     Status = supervisor:count_children(GrpName),
