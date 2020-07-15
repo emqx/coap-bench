@@ -52,6 +52,7 @@ may_ack_it(Sock, PeerIP, PeerPortNo, CoapMsg) ->
     end.
 
 init([WorkFlow, OnUnexpectedMsg, Vars, Conf]) ->
+    erlang:process_flag(trap_exit, true),
     {ok, working, #data{
             conf = trans_conf(Conf),
             workflow = trans_workflow(WorkFlow, Vars),
@@ -119,7 +120,7 @@ process_task(#data{workflow = [{connect, ConnOpts} = Task | WorkFlow], conf = Co
     case emqtt:connect(Client) of
         {ok, _Props} ->
             mqtt_bench_metrics:incr('CONNECT_SUCC'),
-            continue_working(Data#data{current_task = Task, workflow = WorkFlow, mqtt_client = Client});
+            continue_working(Data#data{current_task = Task, workflow = WorkFlow, mqtt_client = {Client, ConnOpts}});
         {error, connack_timeout} ->
             mqtt_bench_metrics:incr('CONNECT_TIMEOUT'),
             {stop, {shutdown, connack_timeout}};
@@ -128,12 +129,12 @@ process_task(#data{workflow = [{connect, ConnOpts} = Task | WorkFlow], conf = Co
             {stop, {shutdown, {connack, Reason}}}
     end;
 
-process_task(#data{workflow = [{disconnect, #{timeout := _MillSec}} = Task | WorkFlow], mqtt_client = Client} = Data) ->
+process_task(#data{workflow = [{disconnect, #{timeout := _MillSec}} = Task | WorkFlow], mqtt_client = {Client, ConnOpts}} = Data) ->
     mqtt_bench_metrics:incr('DISCONNECT'),
     case emqtt:disconnect(Client) of
         ok ->
             mqtt_bench_metrics:incr('DISCONNECT_SUCC'),
-            continue_working(Data#data{current_task = Task, workflow = WorkFlow, mqtt_client = Client});
+            continue_working(Data#data{current_task = Task, workflow = WorkFlow, mqtt_client = {Client, ConnOpts}});
         {error, Reason} ->
             mqtt_bench_metrics:incr('DISCONNECT_FAIL'),
             {stop, {shutdown, {disconnect, Reason}}}
@@ -183,6 +184,18 @@ handle_common_events(StateName, info, {udp, Sock, PeerIP, PeerPortNo, Packet},
         _:_ ->
             logger:error("received unknown udp message that not expected: ~p, statedata: ~p", [Packet, printable_data(Data)]),
             common_events_state(StateName)
+    end;
+
+handle_common_events(StateName, EventType, {'EXIT',_,{shutdown, _Any}},
+    #data{mqtt_client = {_Client, ConnOpts}, conf = Conf, current_task = Task, workflow = WorkFlow} = Data) ->
+    {ok, Client} = emqtt:start_link(conn_opts(ConnOpts, Conf)),
+    case emqtt:connect(Client) of
+        {ok, _Props} ->
+            continue_working(Data#data{workflow = [Task | WorkFlow], mqtt_client = {Client, ConnOpts}});
+        {error, Reason} ->
+            erlang:send_after(3000, self(), {'EXIT', undefined, {shutdown, reconnect}}),
+            logger:error("reconnected fail: ~p", [Reason]),
+            keep_state_and_data
     end;
 
 handle_common_events(StateName, EventType, Event, Data) ->
