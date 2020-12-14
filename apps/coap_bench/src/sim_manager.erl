@@ -114,6 +114,10 @@ do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := Body, <<"path">> :
     {notify, #{body => Body, path => path_list(Path), content_format => content_format(Flow)}};
 do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := #{<<"size">> := Size, <<"type">> := <<"auto_gen_binary">>}, <<"path">> := Path} = Flow) ->
     {notify, #{body => auto_gen_binary, size => Size, path => path_list(Path), content_format => content_format(Flow)}};
+do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := #{<<"type">> := <<"base64">>, <<"payload">> := Payload}, <<"path">> := Path} = Flow) ->
+    {notify, #{body => base64, payload => Payload, path => path_list(Path), content_format => content_format(Flow)}};
+do_parse_workflow(#{<<"task">> := <<"notify">>, <<"body">> := #{<<"type">> := <<"hexstring">>, <<"payload">> := Payload}, <<"path">> := Path} = Flow) ->
+    {notify, #{body => hexstring, payload => Payload, path => path_list(Path), content_format => content_format(Flow)}};
 
 do_parse_workflow(#{<<"task">> := <<"pause">>}) ->
     {pause, #{}};

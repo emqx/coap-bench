@@ -329,6 +329,10 @@ do_trans_workflow({FlowName, Opts}, Vars) when is_map(Opts) ->
 
 make_body(#{body := auto_gen_binary, size := Size} = _Opts) ->
     crypto:strong_rand_bytes(Size);
+make_body(#{body := base64, payload := Payload} = _Opts) ->
+    base64:decode(Payload);
+make_body(#{body := hexstring, payload := Payload} = _Opts) ->
+    coap_bench_utils:hexstr_to_bin(Payload);
 make_body(#{body := Body}) when is_binary(Body) ->
     Body.
 
